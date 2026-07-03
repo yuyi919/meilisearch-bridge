@@ -2435,6 +2435,7 @@ dependencies = [
  "napi-build",
  "napi-derive",
  "parking_lot",
+ "serde",
  "serde_json",
  "tokio",
 ]
@@ -2621,6 +2622,7 @@ dependencies = [
  "once_cell",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

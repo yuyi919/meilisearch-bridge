@@ -12,9 +12,8 @@
 
 use std::sync::Arc;
 
-use napi::bindgen_prelude::*;
-use napi_derive::napi;
 use milli::documents::DocumentsBatchBuilder;
+use napi_derive::napi;
 use parking_lot::Mutex;
 use serde_json::Value;
 
@@ -97,7 +96,7 @@ impl Index {
             }
 
             let idx = inner.lock();
-            let mut wtxn = idx.write_txn().map_err(|e| BridgeError {
+            let wtxn = idx.write_txn().map_err(|e| BridgeError {
                 code: BridgeErrorCode::IoError,
                 message: e.to_string(),
             })?;

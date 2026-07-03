@@ -14,7 +14,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use parking_lot::Mutex;
 use tokio::sync::RwLock;
@@ -37,7 +36,7 @@ pub struct Engine {
     env_builder: heed::EnvOpenOptions<heed::WithoutTls>,
     /// Lock guarding filesystem mutation (create/delete index) — LMDB doesn't
     /// tolerate concurrent env creation on the same path.
-    fs_lock: Mutex<()>,
+    fs_lock: Arc<Mutex<()>>,
 }
 
 #[napi]
@@ -61,7 +60,7 @@ impl Engine {
             base_path: path,
             open_indexes: Arc::new(RwLock::new(hashbrown::HashMap::new())),
             env_builder,
-            fs_lock: Mutex::new(()),
+            fs_lock: Arc::new(Mutex::new(())),
         })
     }
 
@@ -95,12 +94,13 @@ impl Engine {
     /// Create a new index with the given `uid` and `primary_key` (the field
     /// name used as the document id). Fails if the index already exists.
     #[napi]
-    pub async fn create_index(&self, uid: String, primary_key: String) -> napi::Result<()> {
+    pub async fn create_index(&self, uid: String, _primary_key: String) -> napi::Result<()> {
         let base = self.base_path.clone();
         let builder = self.env_builder.clone();
-        let _fs_guard = self.fs_lock.lock();
+        let fs_lock = self.fs_lock.clone();
 
         let result: BridgeResult<()> = tokio::task::spawn_blocking(move || {
+            let _fs_guard = fs_lock.lock();
             let index_path = base.join(&uid);
             if index_path.exists() {
                 return Err(BridgeError {
@@ -170,12 +170,13 @@ impl Engine {
     #[napi]
     pub async fn delete_index(&self, uid: String) -> napi::Result<()> {
         let base = self.base_path.clone();
-        let _fs_guard = self.fs_lock.lock();
+        let fs_lock = self.fs_lock.clone();
         {
             let mut cache = self.open_indexes.blocking_write();
             cache.remove(&uid);
         }
         let result: BridgeResult<()> = tokio::task::spawn_blocking(move || {
+            let _fs_guard = fs_lock.lock();
             let index_path = base.join(&uid);
             if !index_path.exists() {
                 return Err(BridgeError {

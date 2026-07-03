@@ -5,7 +5,6 @@
 //! `crate::error::Error` into a JS `Error` with a code (string) and the original
 //! message preserved.
 
-use napi::bindgen_prelude::*;
 use std::fmt;
 
 /// JS-facing error codes. These are stable strings that TypeScript code can
@@ -104,6 +103,15 @@ impl From<milli::Error> for BridgeError {
 
 impl From<std::io::Error> for BridgeError {
     fn from(e: std::io::Error) -> Self {
+        Self {
+            code: BridgeErrorCode::IoError,
+            message: e.to_string(),
+        }
+    }
+}
+
+impl From<heed::Error> for BridgeError {
+    fn from(e: heed::Error) -> Self {
         Self {
             code: BridgeErrorCode::IoError,
             message: e.to_string(),
