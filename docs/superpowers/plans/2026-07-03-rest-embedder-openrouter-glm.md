@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add first-phase embedders support that lets `@meilisearch-bridge/api` configure a REST embedder for OpenRouter or GLM, index documents through `milli`, and run minimal hybrid search from the SDK.
+**Goal:** Add phased embedders support so `@meilisearch-bridge/api` can configure a REST embedder for OpenRouter or GLM, index documents through `milli`, run hybrid search, expose `retrieveVectors` in the base search shape, and reserve `similar` for a follow-up phase.
 
-**Architecture:** Keep the public TypeScript API close to `meilisearch-js` by exposing `embedders` on `updateSettings()` and `hybrid` on `search()`. Keep the N-API boundary narrow by serializing the embedder map as JSON in the API wrapper, then parse and apply it in `packages/core` using `milli`'s `EmbeddingSettings`, `RuntimeEmbedders`, and `Search::semantic(...).execute_hybrid(...)`.
+**Architecture:** Keep the public TypeScript API close to `meilisearch-js` by exposing `embedders` on `updateSettings()`, `hybrid` on `search()`, and `retrieveVectors` in the first-phase search result contract. Keep the N-API boundary narrow by serializing the embedder map as JSON in the API wrapper, then parse and apply it in `packages/core` using `milli`'s `EmbeddingSettings`, `RuntimeEmbedders`, `Search::semantic(...).execute_hybrid(...)`, and `Search::retrieve_vectors(...)`.
 
 **Tech Stack:** TypeScript, Node test runner, napi-rs, Rust, vendored `milli`, local HTTP test server
 
@@ -35,10 +35,20 @@
 
 ### Scope guard
 
-This plan intentionally does **not** add:
+This plan is split into two phases:
+
+- Phase 1
+  - REST embedders
+  - OpenAI-compatible helper for OpenRouter/GLM
+  - document indexing with runtime embedders
+  - hybrid search
+  - `retrieveVectors` in search results
+- Phase 2
+  - `similar`
+
+This plan intentionally does **not** add in Phase 1:
 
 - `similar` endpoints
-- `retrieveVectors`
 - multimodal fragments
 - full server-style settings read APIs
 - non-REST embedders in the public bridge API
@@ -70,6 +80,7 @@ export interface SearchOptions {
   limit?: number;
   attributesToRetrieve?: string[];
   hybrid?: HybridSearchOptions;
+  retrieveVectors?: boolean;
 }
 
 export interface UpdateSettingsPayload {
@@ -135,12 +146,13 @@ export interface SearchOptions {
   attributesToRetrieve?: string[];
   hybridEmbedder?: string;
   hybridSemanticRatio?: number;
+  retrieveVectors?: boolean;
 }
 ```
 
 That lets the public SDK stay ergonomic while the native boundary stays easy to generate and maintain.
 
-### Task 1: Lock the user-facing behavior with failing integration tests
+### Task 1: Lock the phase 1 user-facing behavior with failing integration tests
 
 **Files:**
 - Create: `packages/api/__test__/helpers/openai-compatible-embedder.ts`
@@ -254,6 +266,51 @@ test('Index: updateSettings accepts REST embedders and hybrid search uses semant
   }
 });
 
+test('Index: search with retrieveVectors returns generated vectors for hits', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'msb-'));
+  const embedder = await startOpenAICompatibleEmbedder();
+  try {
+    const client = new Client({ dataDir: dir });
+    const index = await client.createIndex('docs', { primaryKey: 'id' });
+
+    await client.waitForTask(
+      (
+        await index.updateSettings({
+          embedders: {
+            default: openAICompatibleRestEmbedder({
+              url: embedder.url,
+              model: 'text-embedding-3-small',
+              apiKey: 'test-key',
+              dimensions: 3,
+              documentTemplate: '{{doc.title}} {{doc.overview}}',
+            }),
+          },
+        })
+      ).taskUid,
+    );
+
+    await client.waitForTask(
+      (
+        await index.addDocuments([
+          { id: '1', title: 'Galaxy guide', overview: 'orbital mechanics and nebula routes' },
+        ])
+      ).taskUid,
+    );
+
+    const results = await index.search('space', {
+      hybrid: { embedder: 'default', semanticRatio: 1.0 },
+      retrieveVectors: true,
+    });
+
+    assert.equal(results.hits.length, 1);
+    assert.ok(results.hits[0]?._vectors);
+    assert.ok(results.hits[0]?._vectors.default);
+  } finally {
+    await embedder.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('openAICompatibleRestEmbedder builds a REST embedder config for OpenRouter-like providers', () => {
   const config = openAICompatibleRestEmbedder({
     url: 'https://openrouter.ai/api/v1/embeddings',
@@ -290,7 +347,7 @@ pnpm --filter @meilisearch-bridge/api test
 
 Expected:
 
-- TypeScript compile failure for missing `embedders`, `hybrid`, and `openAICompatibleRestEmbedder`
+- TypeScript compile failure for missing `embedders`, `hybrid`, `retrieveVectors`, and `openAICompatibleRestEmbedder`
 - or runtime failure because native `updateSettings()` and `search()` ignore the new fields
 
 - [ ] **Step 4: Commit the red test state**
@@ -300,7 +357,7 @@ git add packages/api/__test__/engine.test.ts packages/api/__test__/helpers/opena
 git commit -m "test(api): add failing rest embedder integration coverage"
 ```
 
-### Task 2: Add the TypeScript SDK surface and the OpenAI-compatible helper
+### Task 2: Add the phase 1 TypeScript SDK surface and the OpenAI-compatible helper
 
 **Files:**
 - Modify: `packages/api/src/index.ts`
@@ -326,6 +383,13 @@ export interface RestEmbedderSettings {
 export interface HybridSearchOptions {
   embedder: string;
   semanticRatio: number;
+}
+
+export interface RetrievedVectors {
+  [embedderName: string]: {
+    regenerate?: boolean;
+    embeddings?: number[][];
+  };
 }
 
 export interface OpenAICompatibleRestEmbedderOptions {
@@ -381,6 +445,7 @@ export interface SearchOptions {
   limit?: number;
   attributesToRetrieve?: string[];
   hybrid?: HybridSearchOptions;
+  retrieveVectors?: boolean;
 }
 ```
 
@@ -407,6 +472,7 @@ function toNativeSearchOptions(opts?: SearchOptions): NativeSearchOptions {
     attributesToRetrieve: opts?.attributesToRetrieve,
     hybridEmbedder: opts?.hybrid?.embedder,
     hybridSemanticRatio: opts?.hybrid?.semanticRatio,
+    retrieveVectors: opts?.retrieveVectors,
   };
 }
 ```
@@ -432,7 +498,7 @@ pnpm --filter @meilisearch-bridge/api test
 Expected:
 
 - TypeScript passes
-- the new integration test still fails because `packages/core` does not yet apply embedders or hybrid search
+- the new integration tests still fail because `packages/core` does not yet apply embedders, hybrid search, or vector retrieval
 
 - [ ] **Step 5: Commit the SDK surface**
 
@@ -605,6 +671,7 @@ pub struct SearchOptions {
     pub attributes_to_retrieve: Option<Vec<String>>,
     pub hybrid_embedder: Option<String>,
     pub hybrid_semantic_ratio: Option<f32>,
+    pub retrieve_vectors: Option<bool>,
 }
 ```
 
@@ -620,7 +687,7 @@ pnpm --filter @meilisearch-bridge/api test
 Expected:
 
 - native build succeeds
-- hybrid search test still fails because settings application and search execution are not yet wired
+- hybrid search and retrieveVectors tests still fail because settings application and search execution are not yet wired
 
 - [ ] **Step 5: Commit the native parsing layer**
 
@@ -629,7 +696,7 @@ git add packages/core/src/lib.rs packages/core/src/index.rs packages/core/src/em
 git commit -m "feat(core): add rest embedder parsing helpers"
 ```
 
-### Task 4: Apply embedder settings and wire runtime embedders into indexing and hybrid search
+### Task 4: Apply phase 1 embedder settings and wire runtime embedders into indexing, hybrid search, and `retrieveVectors`
 
 **Files:**
 - Modify: `packages/core/src/index.rs`
@@ -716,7 +783,17 @@ if let (Some(embedder_name), Some(semantic_ratio)) = (
 
 If the hybrid fields are absent, keep the existing `search.execute()` path.
 
-- [ ] **Step 4: Run the focused verification**
+- [ ] **Step 4: Expose generated vectors when requested**
+
+In `Index::search`, set the retrieve-vectors flag before executing the query:
+
+```rust
+search.retrieve_vectors(options.retrieve_vectors.unwrap_or(false));
+```
+
+When materializing hits, preserve `_vectors` in `attributes` so the API layer can surface it unchanged. Do not strip it in the first phase.
+
+- [ ] **Step 5: Run the focused verification**
 
 Run:
 
@@ -730,14 +807,14 @@ Expected:
 - the new REST embedder + hybrid search tests pass
 - the existing document and settings tests remain green
 
-- [ ] **Step 5: Commit the runtime wiring**
+- [ ] **Step 6: Commit the runtime wiring**
 
 ```bash
 git add packages/core/src/index.rs packages/core/src/embedders.rs packages/api/__test__/engine.test.ts
-git commit -m "feat(core): wire rest embedders into indexing and hybrid search"
+git commit -m "feat(core): wire rest embedders into indexing hybrid search and vector retrieval"
 ```
 
-### Task 5: Regenerate committed bindings and run the full verification pass
+### Task 5: Regenerate committed bindings and run the full phase 1 verification pass
 
 **Files:**
 - Modify: `packages/core/index.d.ts`
@@ -755,7 +832,7 @@ pnpm run build:core
 
 Expected:
 
-- `packages/core/index.d.ts` contains `embeddersJson`, `hybridEmbedder`, and `hybridSemanticRatio`
+- `packages/core/index.d.ts` contains `embeddersJson`, `hybridEmbedder`, `hybridSemanticRatio`, and `retrieveVectors`
 - `packages/core/index.js` remains generated and non-empty
 
 - [ ] **Step 2: Run the complete local verification chain**
@@ -791,17 +868,143 @@ git add packages/core/index.d.ts packages/core/index.js packages/core/Cargo.lock
 git commit -m "feat: add rest embedder support for openrouter and glm"
 ```
 
+### Task 6: Phase 2 follow-up for `similar`
+
+**Files:**
+- Modify: `packages/api/src/index.ts`
+- Modify: `packages/core/src/index.rs`
+- Modify: `packages/core/index.d.ts`
+- Modify: `packages/core/index.js`
+- Modify: `packages/api/__test__/engine.test.ts`
+
+- [ ] **Step 1: Write the failing phase 2 tests**
+
+Add tests for a new `index.similar(documentId, opts)` entry point:
+
+```ts
+test('Index: similar returns semantically related documents for a reference document id', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'msb-'));
+  const embedder = await startOpenAICompatibleEmbedder();
+  try {
+    const client = new Client({ dataDir: dir });
+    const index = await client.createIndex('docs', { primaryKey: 'id' });
+
+    await client.waitForTask(
+      (
+        await index.updateSettings({
+          embedders: {
+            default: openAICompatibleRestEmbedder({
+              url: embedder.url,
+              model: 'text-embedding-3-small',
+              dimensions: 3,
+            }),
+          },
+        })
+      ).taskUid,
+    );
+
+    await client.waitForTask(
+      (
+        await index.addDocuments([
+          { id: '1', title: 'Galaxy guide', overview: 'orbital mechanics and nebula routes' },
+          { id: '2', title: 'Star atlas', overview: 'space maps and orbits' },
+          { id: '3', title: 'Pasta manual', overview: 'cooking fresh noodles in the kitchen' },
+        ])
+      ).taskUid,
+    );
+
+    const results = await index.similar('1', { embedder: 'default', limit: 1 });
+    assert.equal(results.hits.length, 1);
+    assert.equal(results.hits[0]?.id, '2');
+  } finally {
+    await embedder.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run:
+
+```bash
+pnpm --filter @meilisearch-bridge/api test
+```
+
+Expected:
+
+- failure because `similar` is not yet implemented in `api` or `core`
+
+- [ ] **Step 3: Add the minimal public and native API**
+
+Expose these phase 2 shapes:
+
+```ts
+export interface SimilarOptions {
+  embedder: string;
+  offset?: number;
+  limit?: number;
+  filter?: string;
+  retrieveVectors?: boolean;
+}
+```
+
+Add a matching native DTO plus an `Index.similar(...)` N-API method.
+
+- [ ] **Step 4: Implement `milli::Similar`-based execution**
+
+In `packages/core/src/index.rs`, build runtime embedders exactly as in phase 1, then call `milli`'s similar-search path using:
+
+- the requested document id
+- the embedder name
+- `retrieveVectors`
+- limit and offset
+
+Keep the result materialization aligned with `search()`.
+
+- [ ] **Step 5: Run the tests to verify phase 2 passes**
+
+Run:
+
+```bash
+pnpm run build:core
+pnpm --filter @meilisearch-bridge/api test
+```
+
+Expected:
+
+- the new `similar` tests pass
+- phase 1 tests remain green
+
+- [ ] **Step 6: Regenerate bindings and commit**
+
+Run:
+
+```bash
+pnpm run build:core
+```
+
+Commit:
+
+```bash
+git add packages/core/src/index.rs packages/core/index.d.ts packages/core/index.js packages/api/src/index.ts packages/api/__test__/engine.test.ts
+git commit -m "feat: add similar search for embedded documents"
+```
+
 ## Self-review
 
 - Spec coverage:
-  - public `embedders` settings: covered by Tasks 1, 2, 4
+  - phase 1 public `embedders` settings: covered by Tasks 1, 2, 4
   - OpenRouter/GLM-friendly helper: covered by Tasks 1 and 2
   - runtime embedding during indexing: covered by Task 4
   - minimal hybrid search: covered by Task 4
-  - generated binding refresh and full verification: covered by Task 5
+  - `retrieveVectors` in the base search shape: covered by Tasks 1, 2, 4
+  - generated binding refresh and full phase 1 verification: covered by Task 5
+  - phase 2 `similar`: covered by Task 6
 - Placeholder scan:
   - no `TODO`, `TBD`, or “similar to previous task” instructions remain
 - Type consistency:
   - public TS uses `embedders` and `hybrid`
-  - native TS DTOs use `embeddersJson`, `hybridEmbedder`, and `hybridSemanticRatio`
+  - phase 1 public TS also uses `retrieveVectors`
+  - native TS DTOs use `embeddersJson`, `hybridEmbedder`, `hybridSemanticRatio`, and `retrieveVectors`
   - Rust uses matching snake_case fields generated from those names
