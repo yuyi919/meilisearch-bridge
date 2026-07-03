@@ -1,0 +1,285 @@
+name: Release
+
+env:
+  DEBUG: napi:*
+  CARGO_INCREMENTAL: "1"
+
+permissions:
+  contents: write
+  id-token: write
+
+on:
+  push:
+    branches:
+      - main
+    tags-ignore:
+      - "**"
+    paths-ignore:
+      - "**/*.md"
+      - LICENSE
+      - "**/*.gitignore"
+      - .editorconfig
+      - docs/**
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Install dependencies
+        run: pnpm install
+      - name: Type check
+        run: pnpm --filter @meilisearch-bridge/api lint
+      - name: Cargo fmt
+        working-directory: packages/core
+        run: cargo fmt -- --check
+      - name: Clippy
+        working-directory: packages/core
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+  build-core:
+    name: Build core - ${{ matrix.settings.target }}
+    runs-on: ${{ matrix.settings.host }}
+    needs:
+      - lint
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - host: macos-latest
+            target: x86_64-apple-darwin
+            build: pnpm --filter @meilisearch-bridge/core build -- --target x86_64-apple-darwin
+          - host: macos-latest
+            target: aarch64-apple-darwin
+            build: pnpm --filter @meilisearch-bridge/core build -- --target aarch64-apple-darwin
+          - host: windows-latest
+            target: x86_64-pc-windows-msvc
+            build: pnpm --filter @meilisearch-bridge/core build -- --target x86_64-pc-windows-msvc
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            build: pnpm --filter @meilisearch-bridge/core build -- --target x86_64-unknown-linux-gnu --use-napi-cross
+          - host: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            build: pnpm --filter @meilisearch-bridge/core build -- --target aarch64-unknown-linux-gnu --use-napi-cross
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            build: pnpm --filter @meilisearch-bridge/core build -- --target x86_64-unknown-linux-musl -x
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.settings.target }}
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ~/.napi-rs
+            packages/core/target/
+          key: ${{ matrix.settings.target }}-cargo-${{ runner.os }}
+      - uses: mlugg/setup-zig@v2
+        if: ${{ contains(matrix.settings.target, 'musl') }}
+        with:
+          version: 0.15.2
+      - name: Install cargo-zigbuild
+        uses: taiki-e/install-action@v2
+        if: ${{ contains(matrix.settings.target, 'musl') }}
+        with:
+          tool: cargo-zigbuild
+      - name: Install dependencies
+        run: pnpm install
+      - name: Build
+        run: ${{ matrix.settings.build }}
+        shell: bash
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bindings-${{ matrix.settings.target }}
+          path: packages/core/*.node
+          if-no-files-found: error
+
+  test-macos-windows:
+    name: Test bindings - ${{ matrix.settings.target }}
+    runs-on: ${{ matrix.settings.host }}
+    needs:
+      - build-core
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - host: windows-latest
+            target: x86_64-pc-windows-msvc
+            architecture: x64
+          - host: macos-latest
+            target: x86_64-apple-darwin
+            architecture: x64
+          - host: macos-latest
+            target: aarch64-apple-darwin
+            architecture: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          architecture: ${{ matrix.settings.architecture }}
+      - name: Install dependencies
+        run: pnpm install
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: bindings-${{ matrix.settings.target }}
+          path: packages/core
+      - name: Verify
+        run: pnpm run verify:api:ci
+
+  test-linux:
+    name: Test bindings - ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    needs:
+      - build-core
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - x86_64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --force
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: bindings-${{ matrix.target }}
+          path: packages/core
+      - name: Build api
+        run: pnpm --filter @meilisearch-bridge/api build
+      - name: Test (gnu)
+        if: ${{ endsWith(matrix.target, '-gnu') }}
+        run: pnpm --filter @meilisearch-bridge/api test
+      - name: Test (musl in alpine)
+        if: ${{ endsWith(matrix.target, '-musl') }}
+        uses: tj-actions/docker-run@v2
+        with:
+          image: node:20-alpine
+          name: test-binding
+          options: -v ${{ github.workspace }}:${{ github.workspace }} -w ${{ github.workspace }}
+          args: node --test --import tsx packages/api/__test__/*.test.ts
+
+  publish:
+    name: Publish (latest)
+    runs-on: ubuntu-latest
+    needs:
+      - lint
+      - build-core
+      - test-macos-windows
+      - test-linux
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install
+      - name: Check release commit
+        id: release
+        shell: bash
+        run: |
+          MSG="$(git log -1 --pretty=%B | head -n 1 | tr -d '\r')"
+          if [[ "$MSG" =~ ^v?([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "VERSION=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+          else
+            echo "VERSION=" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Skip if not a release
+        if: ${{ steps.release.outputs.VERSION == '' }}
+        run: echo "Not a release commit, skipping publish"
+      - name: Check package versions
+        if: ${{ steps.release.outputs.VERSION != '' }}
+        shell: bash
+        run: |
+          VERSION="${{ steps.release.outputs.VERSION }}"
+          CORE="$(node -p \"require('./packages/core/package.json').version\")"
+          API="$(node -p \"require('./packages/api/package.json').version\")"
+          if [[ "$CORE" != "$VERSION" || "$API" != "$VERSION" ]]; then
+            echo "Version mismatch: release=$VERSION core=$CORE api=$API"
+            exit 1
+          fi
+      - name: Download all artifacts
+        if: ${{ steps.release.outputs.VERSION != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          path: packages/core/artifacts
+      - name: Create npm dirs
+        if: ${{ steps.release.outputs.VERSION != '' }}
+        run: pnpm -C packages/core run create-npm-dirs
+      - name: Move artifacts
+        if: ${{ steps.release.outputs.VERSION != '' }}
+        run: pnpm -C packages/core run artifacts
+      - name: List packages
+        if: ${{ steps.release.outputs.VERSION != '' }}
+        run: ls -R packages/core/npm
+        shell: bash
+      - name: Publish core + platform packages
+        if: ${{ steps.release.outputs.VERSION != '' }}
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          npm config set provenance true
+          echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
+          cd packages/core
+          pnpm publish --access public --no-git-checks
+      - name: Publish api
+        if: ${{ steps.release.outputs.VERSION != '' }}
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        shell: bash
+        run: |
+          echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
+          cd packages/api
+          pnpm publish --access public --no-git-checks

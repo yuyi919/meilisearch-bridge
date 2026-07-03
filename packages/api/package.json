@@ -14,12 +14,18 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/build-bundle.cjs",
     "clean": "rm -rf dist",
     "test": "node --test --import tsx __test__/*.test.ts",
     "lint": "tsc --noEmit"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
   },
   "dependencies": {
     "@meilisearch-bridge/core": "workspace:*"
