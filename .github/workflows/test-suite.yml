@@ -31,6 +31,8 @@ jobs:
           sudo rm -rf "/usr/local/share/boost" || true
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@1.91.1
+        with:
+          components: rustfmt
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2.9.1
         with:
@@ -53,6 +55,15 @@ jobs:
       - name: napi build (release .node binary)
         working-directory: packages/core
         run: npx napi build --platform --release --strip
+      - name: Upload core addon
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-addon
+          path: |
+            packages/core/index.js
+            packages/core/index.d.ts
+            packages/core/*.node
+          if-no-files-found: error
 
   # ─── TS: build + test the SDK ────────────────────────────────────────────
   ts-build:
@@ -66,6 +77,11 @@ jobs:
           node-version: 20
       - uses: pnpm/action-setup@v4
       - run: pnpm install --frozen-lockfile=false
+      - name: Download core addon
+        uses: actions/download-artifact@v4
+        with:
+          name: core-addon
+          path: packages/core
       - name: tsc (api)
         working-directory: packages/api
         run: pnpm run lint
