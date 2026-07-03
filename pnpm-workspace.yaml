@@ -1,0 +1,3 @@
+packages:
+  - 'packages/*'
+  # native/meilisearch is a subtree (vendored upstream), NOT a workspace member

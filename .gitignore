@@ -1,0 +1,40 @@
+# Node
+node_modules/
+.pnpm-store/
+dist/
+build/
+*.tsbuildinfo
+.npm/
+
+# Rust / Cargo
+native/meilisearch/target/
+native/meilisearch/crates/*/target/
+native/meilisearch/.cargo/
+**/*.rs.bk
+Cargo.lock.bak
+*.pdb
+
+# Meili data (when running tests)
+data.ms/
+*.db/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build artifacts from napi-rs
+*.node
+index.linux-*
+index.darwin-*
+index.win32-*
