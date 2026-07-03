@@ -13,6 +13,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use napi_derive::napi;
 use parking_lot::Mutex;
@@ -20,6 +21,7 @@ use tokio::sync::RwLock;
 
 use crate::errors::{into_js, BridgeError, BridgeErrorCode, BridgeResult};
 use crate::index::Index;
+use crate::task::{TaskInfo, TaskStore};
 
 /// The top-level container for a collection of named indexes.
 ///
@@ -37,6 +39,10 @@ pub struct Engine {
     /// Lock guarding filesystem mutation (create/delete index) — LMDB doesn't
     /// tolerate concurrent env creation on the same path.
     fs_lock: Arc<Mutex<()>>,
+    /// Shared milli indexer configuration for document and settings updates.
+    indexer_config: Arc<milli::update::IndexerConfig>,
+    /// Persistent task registry rooted at `<base_path>/.tasks`.
+    task_store: Arc<TaskStore>,
 }
 
 #[napi]
@@ -56,11 +62,14 @@ impl Engine {
         }
         let mut env_builder = heed::EnvOpenOptions::new().read_txn_without_tls();
         env_builder.map_size(4 * 1024 * 1024 * 1024); // 4 GiB
+        let task_store = TaskStore::new(&path)?;
         Ok(Self {
             base_path: path,
             open_indexes: Arc::new(RwLock::new(hashbrown::HashMap::new())),
             env_builder,
             fs_lock: Arc::new(Mutex::new(())),
+            indexer_config: Arc::new(milli::update::IndexerConfig::default()),
+            task_store: Arc::new(task_store),
         })
     }
 
@@ -94,10 +103,11 @@ impl Engine {
     /// Create a new index with the given `uid` and `primary_key` (the field
     /// name used as the document id). Fails if the index already exists.
     #[napi]
-    pub async fn create_index(&self, uid: String, _primary_key: String) -> napi::Result<()> {
+    pub async fn create_index(&self, uid: String, primary_key: String) -> napi::Result<()> {
         let base = self.base_path.clone();
         let builder = self.env_builder.clone();
         let fs_lock = self.fs_lock.clone();
+        let indexer_config = self.indexer_config.clone();
 
         let result: BridgeResult<()> = tokio::task::spawn_blocking(move || {
             let _fs_guard = fs_lock.lock();
@@ -109,11 +119,12 @@ impl Engine {
                 });
             }
             std::fs::create_dir_all(&index_path)?;
-            let _ = milli::Index::new(
+            let created = milli::Index::new(
                 builder,
                 &index_path,
                 milli::CreateOrOpen::create_without_shards(),
             )?;
+            apply_primary_key(&created, &indexer_config, primary_key)?;
             Ok(())
         })
         .await
@@ -133,6 +144,8 @@ impl Engine {
         let base = self.base_path.clone();
         let builder = self.env_builder.clone();
         let open_indexes = self.open_indexes.clone();
+        let indexer_config = self.indexer_config.clone();
+        let task_store = self.task_store.clone();
 
         let result: BridgeResult<Index> = tokio::task::spawn_blocking(move || {
             let index_path = base.join(&uid);
@@ -146,6 +159,13 @@ impl Engine {
                 milli::CreateOrOpen::create_without_shards()
             };
             let milli_index = milli::Index::new(builder, &index_path, create_or_open)?;
+            if !already_exists {
+                if let Some(ref key) = primary_key {
+                    apply_primary_key(&milli_index, &indexer_config, key.clone())?;
+                }
+            }
+
+            let resolved_primary_key = read_primary_key(&milli_index)?;
 
             // Cache for later reuse. Wrapped in a sync Mutex<milli::Index> so
             // indexers can lock it for the duration of an add_documents call.
@@ -155,7 +175,13 @@ impl Engine {
                 cache.insert(uid.clone(), handle.clone());
             }
 
-            Ok(Index::new(uid, primary_key, handle))
+            Ok(Index::new(
+                uid,
+                resolved_primary_key,
+                handle,
+                indexer_config,
+                task_store,
+            ))
         })
         .await
         .map_err(|e| BridgeError {
@@ -194,4 +220,71 @@ impl Engine {
         })?;
         into_js(result)
     }
+
+    #[napi]
+    pub async fn get_task(&self, task_uid: u32) -> napi::Result<TaskInfo> {
+        let task_store = self.task_store.clone();
+        let result: BridgeResult<TaskInfo> =
+            tokio::task::spawn_blocking(move || task_store.get(task_uid))
+                .await
+                .map_err(|e| BridgeError {
+                    code: BridgeErrorCode::Internal,
+                    message: format!("get_task task panicked: {e}"),
+                })?;
+        into_js(result)
+    }
+
+    #[napi]
+    pub async fn wait_for_task(
+        &self,
+        task_uid: u32,
+        timeout_ms: Option<u32>,
+    ) -> napi::Result<TaskInfo> {
+        let task_store = self.task_store.clone();
+        let timeout_ms = timeout_ms.unwrap_or(5_000);
+        let result: BridgeResult<TaskInfo> = tokio::task::spawn_blocking(move || {
+            let started = std::time::Instant::now();
+            loop {
+                match task_store.get(task_uid) {
+                    Ok(task) => return Ok(task),
+                    Err(err)
+                        if matches!(err.code, BridgeErrorCode::TaskNotFound)
+                            && started.elapsed() < Duration::from_millis(timeout_ms as u64) =>
+                    {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(err) => return Err(err),
+                }
+            }
+        })
+        .await
+        .map_err(|e| BridgeError {
+            code: BridgeErrorCode::Internal,
+            message: format!("wait_for_task task panicked: {e}"),
+        })?;
+        into_js(result)
+    }
+}
+
+fn apply_primary_key(
+    index: &milli::Index,
+    indexer_config: &milli::update::IndexerConfig,
+    primary_key: String,
+) -> BridgeResult<()> {
+    let mut wtxn = index.write_txn().map_err(BridgeError::from)?;
+    let mut settings = milli::update::Settings::new(&mut wtxn, index, indexer_config);
+    settings.set_primary_key(primary_key);
+    settings.execute(
+        &milli::MustStopProcessing::default(),
+        &milli::progress::Progress::default(),
+        &http_client::policy::IpPolicy::danger_always_allow(),
+        Default::default(),
+    )?;
+    wtxn.commit().map_err(BridgeError::from)?;
+    Ok(())
+}
+
+fn read_primary_key(index: &milli::Index) -> BridgeResult<Option<String>> {
+    let rtxn = index.read_txn().map_err(BridgeError::from)?;
+    Ok(index.primary_key(&rtxn).map_err(BridgeError::from)?.map(ToOwned::to_owned))
 }

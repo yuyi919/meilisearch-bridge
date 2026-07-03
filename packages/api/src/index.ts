@@ -11,7 +11,12 @@
  * a local directory and then build a `Client` from it.
  */
 
-import { Engine as NativeEngine, Index as NativeIndex } from '@meilisearch-bridge/core';
+import {
+  Engine as NativeEngine,
+  Index as NativeIndex,
+  type IndexSettingsUpdate as NativeIndexSettingsUpdate,
+  type TaskInfo as NativeTaskInfo,
+} from '@meilisearch-bridge/core';
 
 export interface EngineOptions {
   /** Path to a directory that will hold the per-index subdirectories. */
@@ -26,6 +31,41 @@ export interface AddDocumentsOptions {
   primaryKey?: string;
 }
 
+export interface UpdateSettingsPayload {
+  primaryKey?: string;
+  searchableAttributes?: string[];
+  displayedAttributes?: string[];
+  filterableAttributes?: string[];
+  sortableAttributes?: string[];
+}
+
+export interface TaskDetails {
+  receivedDocuments?: number;
+  indexedDocuments?: number;
+  searchableAttributes?: string[];
+}
+
+export interface Task {
+  uid: number;
+  indexUid?: string;
+  status: string;
+  type: string;
+  details?: TaskDetails;
+  error?: string;
+  enqueuedAt: string;
+  startedAt: string;
+  finishedAt?: string;
+}
+
+export interface EnqueuedTask {
+  taskUid: number;
+  indexUid?: string;
+  status: string;
+  type: string;
+  enqueuedAt: string;
+  acceptedDocuments?: number;
+}
+
 /** Stable error codes surfaced from the native layer. */
 export type MeilisearchErrorCode =
   | 'Internal'
@@ -33,6 +73,7 @@ export type MeilisearchErrorCode =
   | 'IoError'
   | 'IndexAlreadyExists'
   | 'IndexNotFound'
+  | 'TaskNotFound'
   | 'DocumentNotFound'
   | 'InvalidDatabaseState'
   | 'SettingsUpdateInvalid'
@@ -54,11 +95,66 @@ export class MeilisearchBridgeError extends Error {
 
 function normalizeNativeError(e: unknown): never {
   if (e && typeof e === 'object' && 'code' in e && 'message' in e) {
-    const code = String((e as { code: unknown }).code) as MeilisearchErrorCode;
     const message = String((e as { message: unknown }).message);
-    throw new MeilisearchBridgeError(code, message, e);
+    const rawCode = String((e as { code: unknown }).code);
+    throw new MeilisearchBridgeError(extractErrorCode(rawCode, message), message, e);
   }
   throw new MeilisearchBridgeError('Internal', String(e), e);
+}
+
+const KNOWN_ERROR_CODES = new Set<MeilisearchErrorCode>([
+  'Internal',
+  'InvalidArgument',
+  'IoError',
+  'IndexAlreadyExists',
+  'IndexNotFound',
+  'TaskNotFound',
+  'DocumentNotFound',
+  'InvalidDatabaseState',
+  'SettingsUpdateInvalid',
+  'SearchError',
+  'TooManyDocuments',
+  'OutOfBound',
+]);
+
+function extractErrorCode(rawCode: string, message: string): MeilisearchErrorCode {
+  if (KNOWN_ERROR_CODES.has(rawCode as MeilisearchErrorCode)) {
+    return rawCode as MeilisearchErrorCode;
+  }
+
+  const matched = message.match(
+    /\b(Internal|InvalidArgument|IoError|IndexAlreadyExists|IndexNotFound|TaskNotFound|DocumentNotFound|InvalidDatabaseState|SettingsUpdateInvalid|SearchError|TooManyDocuments|OutOfBound)\b/,
+  );
+  if (matched) {
+    return matched[1] as MeilisearchErrorCode;
+  }
+
+  return 'Internal';
+}
+
+function toTask(task: NativeTaskInfo): Task {
+  return {
+    uid: task.uid,
+    indexUid: task.indexUid,
+    status: task.status,
+    type: task.type,
+    details: task.details,
+    error: task.error,
+    enqueuedAt: task.enqueuedAt,
+    startedAt: task.startedAt,
+    finishedAt: task.finishedAt,
+  };
+}
+
+function toEnqueuedTask(task: NativeTaskInfo): EnqueuedTask {
+  return {
+    taskUid: task.uid,
+    indexUid: task.indexUid,
+    status: task.status,
+    type: task.type,
+    enqueuedAt: task.enqueuedAt,
+    acceptedDocuments: task.details?.receivedDocuments,
+  };
 }
 
 /**
@@ -100,7 +196,7 @@ export class Engine {
   async getIndex(uid: string, primaryKey?: string): Promise<Index> {
     try {
       const native = await this.#native.getIndex(uid, primaryKey ?? null);
-      return new Index(native, uid, primaryKey ?? null);
+      return new Index(native, native.uid, native.primaryKey ?? null);
     } catch (e) {
       normalizeNativeError(e);
     }
@@ -110,6 +206,22 @@ export class Engine {
   async deleteIndex(uid: string): Promise<void> {
     try {
       await this.#native.deleteIndex(uid);
+    } catch (e) {
+      normalizeNativeError(e);
+    }
+  }
+
+  async getTask(taskUid: number): Promise<Task> {
+    try {
+      return toTask(await this.#native.getTask(taskUid));
+    } catch (e) {
+      normalizeNativeError(e);
+    }
+  }
+
+  async waitForTask(taskUid: number, timeoutMs?: number): Promise<Task> {
+    try {
+      return toTask(await this.#native.waitForTask(taskUid, timeoutMs ?? null));
     } catch (e) {
       normalizeNativeError(e);
     }
@@ -125,7 +237,7 @@ export class Engine {
 export class Index {
   readonly #native: NativeIndex;
   readonly uid: string;
-  readonly primaryKey: string | null;
+  primaryKey: string | null;
 
   constructor(native: NativeIndex, uid: string, primaryKey: string | null) {
     this.#native = native;
@@ -156,34 +268,57 @@ export class Index {
    */
   async addDocuments<T extends Record<string, unknown>>(
     documents: T[],
-    _opts?: AddDocumentsOptions,
-  ): Promise<{ taskUid: number; acceptedDocuments: number; status: 'enqueued' }> {
+    opts?: AddDocumentsOptions,
+  ): Promise<EnqueuedTask> {
+    if (opts?.primaryKey && !this.primaryKey) {
+      await this.updateSettings({ primaryKey: opts.primaryKey });
+    }
     const ndjson = documents.map((d) => JSON.stringify(d)).join('\n');
-    let accepted: number;
     try {
-      accepted = await this.#native.addDocumentsFromNdjson(ndjson);
+      return toEnqueuedTask(await this.#native.addDocumentsFromNdjson(ndjson));
     } catch (e) {
       normalizeNativeError(e);
     }
-    // The task Uid is a stub — milli's Indexer queue hasn't been wired up yet.
-    // When it is, this will be the real Uid of the queued indexing task.
-    return {
-      taskUid: Math.floor(Math.random() * 0xffffffff),
-      acceptedDocuments: accepted,
-      status: 'enqueued',
-    };
   }
 
-  /** Search the index. NOT YET IMPLEMENTED — throws on every call. */
-  async search(_query: string, _opts?: unknown): Promise<{ hits: never[] }> {
+  async updateSettings(settings: UpdateSettingsPayload): Promise<EnqueuedTask> {
     try {
-      await this.#native.search('');
+      const task = await this.#native.updateSettings(settings as NativeIndexSettingsUpdate);
+      if (settings.primaryKey) {
+        this.primaryKey = settings.primaryKey;
+      }
+      return toEnqueuedTask(task);
     } catch (e) {
-      // Re-throw with the friendly code; the native layer always throws
-      // 'Internal' for not-implemented, which we translate here.
       normalizeNativeError(e);
     }
-    return { hits: [] };
+  }
+
+  async search<T extends Record<string, unknown>>(
+    query: string,
+    _opts?: unknown,
+  ): Promise<{
+    hits: Array<T & { id: string; _rankingScore: number }>;
+    estimatedTotalHits: number;
+    processingTimeMs: number;
+    query: string;
+    isEmptyQuery: boolean;
+  }> {
+    try {
+      const results = await this.#native.search(query);
+      return {
+        hits: results.hits.map((hit) => ({
+          ...(hit.attributes as T),
+          id: hit.id,
+          _rankingScore: hit.score,
+        })),
+        estimatedTotalHits: results.estimatedTotalHits,
+        processingTimeMs: results.processingTimeMs,
+        query: results.query,
+        isEmptyQuery: results.isEmptyQuery,
+      };
+    } catch (e) {
+      normalizeNativeError(e);
+    }
   }
 }
 
@@ -213,6 +348,14 @@ export class Client {
   /** Alias of `engine.getIndex()`. */
   async getIndex(uid: string): Promise<Index> {
     return this.engine.getIndex(uid);
+  }
+
+  async getTask(taskUid: number): Promise<Task> {
+    return this.engine.getTask(taskUid);
+  }
+
+  async waitForTask(taskUid: number, timeoutMs?: number): Promise<Task> {
+    return this.engine.waitForTask(taskUid, timeoutMs);
   }
 
   /** Alias of `engine.deleteIndex()`. */

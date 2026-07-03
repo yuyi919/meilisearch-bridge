@@ -23,8 +23,10 @@ pub mod engine;
 pub mod errors;
 pub mod index;
 pub mod search;
+pub mod task;
 
 pub use engine::Engine;
 pub use errors::{BridgeError, BridgeErrorCode, BridgeResult};
 pub use index::Index;
 pub use search::{DocumentHit, SearchResults};
+pub use task::{TaskDetails, TaskInfo, TaskStore};
