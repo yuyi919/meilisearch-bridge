@@ -11,7 +11,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 napi = { version = "2", default-features = false, features = ["napi9", "serde-json", "tokio_rt"] }
-napi-derive = { version = "2", features = ["type-def"] }
+napi-derive = "2"
 
 # milli — vendored as a subtree under ../../native/meilisearch/
 milli = { path = "../../native/meilisearch/crates/milli" }
