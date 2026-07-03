@@ -148,21 +148,21 @@ function extractErrorCode(rawCode: string, message: string): MeilisearchErrorCod
 function toTask(task: NativeTaskInfo): Task {
   return {
     uid: task.uid,
-    indexUid: task.indexUid,
+    indexUid: task.indexUid ?? undefined,
     status: task.status,
     type: task.type,
-    details: task.details,
-    error: task.error,
+    details: task.details ?? undefined,
+    error: task.error ?? undefined,
     enqueuedAt: task.enqueuedAt,
-    startedAt: task.startedAt,
-    finishedAt: task.finishedAt,
+    startedAt: task.startedAt ?? undefined,
+    finishedAt: task.finishedAt ?? undefined,
   };
 }
 
 function toEnqueuedTask(task: NativeTaskInfo): EnqueuedTask {
   return {
     taskUid: task.uid,
-    indexUid: task.indexUid,
+    indexUid: task.indexUid ?? undefined,
     status: task.status,
     type: task.type,
     enqueuedAt: task.enqueuedAt,
