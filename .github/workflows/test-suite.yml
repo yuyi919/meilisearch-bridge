@@ -1,0 +1,98 @@
+name: Test suite
+
+on:
+  workflow_dispatch:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  # ─── Rust: build the native addon ─────────────────────────────────────────
+  rust-build:
+    name: Build core (rust + napi-rs)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # We need full history so `git subtree` future pulls work, and so
+          # the Cargo.lock can resolve path deps inside `native/meilisearch/`.
+          fetch-depth: 0
+      - name: Clean space
+        run: |
+          sudo rm -rf "/opt/ghc" || true
+          sudo rm -rf "/usr/share/dotnet" || true
+          sudo rm -rf "/usr/local/lib/android" || true
+          sudo rm -rf "/usr/local/share/boost" || true
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@1.91.1
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2.9.1
+        with:
+          cache-on-failure: true
+      - name: Install napi-rs CLI
+        run: npm install -g @napi-rs/cli
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - name: Install node deps
+        run: pnpm install --frozen-lockfile=false
+      - name: cargo fmt
+        working-directory: packages/core
+        run: cargo fmt --check
+      - name: cargo clippy (core)
+        working-directory: packages/core
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: cargo build (core)
+        working-directory: packages/core
+        run: cargo build --locked --release
+      - name: napi build (release .node binary)
+        working-directory: packages/core
+        run: npx napi build --platform --release --strip
+
+  # ─── TS: build + test the SDK ────────────────────────────────────────────
+  ts-build:
+    name: Build & test api (TypeScript)
+    runs-on: ubuntu-22.04
+    needs: rust-build
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - run: pnpm install --frozen-lockfile=false
+      - name: tsc (api)
+        working-directory: packages/api
+        run: pnpm run lint
+      - name: build (api)
+        working-directory: packages/api
+        run: pnpm run build
+      - name: test (api)
+        working-directory: packages/api
+        run: pnpm test
+
+  # ─── Upstream-version sanity check ───────────────────────────────────────
+  upstream-pinned:
+    name: Verify vendored meilisearch = ${{ vars.UPSTREAM_TAG || 'v1.48.3' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check vendored tag
+        run: |
+          set -euo pipefail
+          ACTUAL=$(grep '^version = ' native/meilisearch/Cargo.toml | head -1 | cut -d'"' -f2)
+          EXPECTED="${UPSTREAM_TAG:-1.48.3}"
+          echo "vendored version = ${ACTUAL}, expected ${EXPECTED}"
+          if [[ "${ACTUAL}" != "${EXPECTED}" ]]; then
+            echo "::error::Vendored meilisearch version ${ACTUAL} does not match expected ${EXPECTED}"
+            exit 1
+          fi

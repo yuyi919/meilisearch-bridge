@@ -1,0 +1,31 @@
+{
+  "name": "@meilisearch-bridge/api",
+  "version": "0.0.0",
+  "description": "TypeScript SDK mirroring the official meilisearch-js API, backed by the in-process @meilisearch-bridge/core native addon",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/build-bundle.cjs",
+    "clean": "rm -rf dist",
+    "test": "node --test --import tsx __test__/*.test.ts",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@meilisearch-bridge/core": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  }
+}

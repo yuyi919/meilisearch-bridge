@@ -1,0 +1,50 @@
+[package]
+name = "@meilisearch-bridge/core"
+version = "0.0.0"
+edition = "2021"
+description = "napi-rs native addon wrapping Meilisearch's milli search engine"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "2", default-features = false, features = ["napi9", "serde-json"] }
+napi-derive = "2"
+
+# milli — vendored as a subtree under ../../native/meilisearch/
+milli = { path = "../../native/meilisearch/crates/milli" }
+
+# Milli pulls in heavy deps (heed, grenad, etc.). These are NOT published to crates.io
+# (publish = false), so we MUST resolve them from the same vendored workspace.
+# Cargo handles transitive path deps automatically, but we declare the workspace-level
+# crates explicitly here for clarity.
+file-store          = { path = "../../native/meilisearch/crates/file-store" }
+flatten-serde-json  = { path = "../../native/meilisearch/crates/flatten-serde-json" }
+http-client         = { path = "../../native/meilisearch/crates/http-client" }
+json-depth-checker  = { path = "../../native/meilisearch/crates/json-depth-checker" }
+
+# Re-exports of milli's transitive deps. Needed for our wrapper code:
+#   - `serde_json::Value` for free-form document payloads from JS
+#   - `heed::EnvOpenOptions` for setting map size on the LMDB env
+#   - `parking_lot::Mutex` for cheap sync locks in the in-memory cache
+#   - `hashbrown::HashMap` for the open-index handle cache
+#   - `tokio` runtime for offloading milli blocking calls to libuv worker pool
+serde_json = { version = "1", features = ["preserve_order"] }
+heed       = { version = "0.22", default-features = false, features = ["serde-json", "serde-bincode"] }
+parking_lot = "0.12"
+hashbrown  = "0.15"
+tokio      = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+
+[build-dependencies]
+napi-build = "2"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+
+[profile.dev]
+opt-level = 0
+debug = true

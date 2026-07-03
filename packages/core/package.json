@@ -1,0 +1,35 @@
+{
+  "name": "@meilisearch-bridge/core",
+  "version": "0.0.0",
+  "description": "napi-rs native addon wrapping Meilisearch's milli search engine",
+  "license": "MIT",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "napi": {
+    "name": "meilisearch-bridge-core",
+    "triples": {
+      "defaults": true,
+      "additional": []
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "meilisearch-bridge-core.linux-x64-gnu.node",
+    "meilisearch-bridge-core.linux-x64-musl.node",
+    "meilisearch-bridge-core.linux-arm64-gnu.node",
+    "meilisearch-bridge-core.darwin-x64.node",
+    "meilisearch-bridge-core.darwin-arm64.node",
+    "meilisearch-bridge-core.win32-x64-msvc.node"
+  ],
+  "scripts": {
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "prepublishOnly": "napi prepublish -t npm",
+    "test": "node --test __test__/*.test.cjs",
+    "clean": "rm -rf target *.node"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.0"
+  }
+}
