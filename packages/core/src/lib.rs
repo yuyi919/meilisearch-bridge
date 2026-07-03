@@ -19,8 +19,6 @@
 #![deny(rust_2018_idioms)]
 #![warn(unused_must_use)]
 
-use napi_derive::napi;
-
 pub mod engine;
 pub mod errors;
 pub mod index;
@@ -34,8 +32,3 @@ pub use index::{
 };
 pub use search::{DocumentHit, SearchResults};
 pub use task::{TaskDetails, TaskInfo, TaskStore};
-
-#[napi]
-pub fn sanity_ping() -> String {
-    "pong".to_string()
-}

@@ -23,6 +23,10 @@ jobs:
           # We need full history so `git subtree` future pulls work, and so
           # the Cargo.lock can resolve path deps inside `native/meilisearch/`.
           fetch-depth: 0
+      - name: Check generated core bindings
+        run: |
+          test -s packages/core/index.d.ts
+          test -s packages/core/index.js
       - name: Clean space
         run: |
           sudo rm -rf "/opt/ghc" || true
@@ -38,7 +42,7 @@ jobs:
         with:
           cache-on-failure: true
       - name: Install napi-rs CLI
-        run: npm install -g @napi-rs/cli
+        run: npm install -g @napi-rs/cli@3.7.2
       - name: Install pnpm
         uses: pnpm/action-setup@v4
       - name: Install node deps

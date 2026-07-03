@@ -31,7 +31,7 @@ importers:
   packages/core:
     devDependencies:
       '@napi-rs/cli':
-        specifier: ^3.6.2
+        specifier: 3.7.2
         version: 3.7.2(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)
 
 packages:

@@ -1,77 +1,125 @@
 # meilisearch-bridge
 
-> A pnpm monorepo that wraps the Meilisearch search engine (vendored as a `git subtree`) as a Node.js addon via **napi-rs**, then exposes a SDK-style TypeScript API matching the official [`meilisearch-js`](https://github.com/meilisearch/meilisearch-js) interface.
+> A pnpm monorepo that embeds Meilisearch's `milli` search engine in a Node.js addon via **napi-rs**, then exposes a TypeScript SDK that follows the official [`meilisearch-js`](https://github.com/meilisearch/meilisearch-js) ergonomics where implemented.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  packages/api                                                    │
 │  ┌──────────────────────────┐    ┌───────────────────────────┐   │
 │  │ @meilisearch-bridge/api  │ ─► │ @meilisearch-bridge/core  │   │
-│  │ (TS SDK, meilisearch-   │    │ (napi-rs native addon)    │   │
-│  │  js-compatible surface)  │    │  .node + .d.ts            │   │
+│  │ (TS SDK, meilisearch-js  │    │ (napi-rs native addon)    │   │
+│  │  style surface)          │    │  .node + generated JS/TS  │   │
 │  └──────────────────────────┘    └─────────────┬─────────────┘   │
 └────────────────────────────────────────────────┼─────────────────┘
                                                  ▼
                               ┌──────────────────────────────────┐
                               │  native/meilisearch/             │
-                              │   crates/milli (search engine)   │
-                              │   crates/index-scheduler (queue) │
-                              │   + other vendored crates        │
+                              │   crates/milli                   │
+                              │   + vendored support crates      │
                               │  ── git subtree, NOT modified ── │
                               └──────────────────────────────────┘
 ```
 
 ## Why this exists
 
-The official `meilisearch-js` SDK is a thin HTTP client for a separate `meilisearch` server process. This bridge inlines the search engine itself (via `milli` / `index-scheduler`) directly into Node.js, with no HTTP layer — useful for:
+The official `meilisearch-js` SDK is an HTTP client for a separate `meilisearch` server process. This project embeds the search engine directly into Node.js with no HTTP layer, which is useful for:
 
-- embedding search into desktop / mobile apps (Electron, Tauri, React Native via napi)
-- unit-testing search logic without spinning up a server
-- serverless / edge runtimes with size constraints
-- single-process tools that just want a search engine as a library
+- embedding search into desktop and local-first apps
+- testing search behavior without starting a server
+- single-process tools that want a library, not a daemon
+- environments where shipping one native module is simpler than running a separate service
 
 ## Layout
 
-| Path                  | What                                                        |
-| --------------------- | ----------------------------------------------------------- |
-| `packages/core/`      | Rust crate wrapping milli with `#[napi]` bindings           |
-| `packages/api/`       | TypeScript SDK, mirrors `meilisearch-js` API surface        |
-| `native/meilisearch/` | Vendored Meilisearch v1.48.3 (read-only, via `git subtree`) |
-| `pnpm-workspace.yaml` | Workspace root                                              |
-| `.github/workflows/`  | CI mirroring upstream Meilisearch style                     |
+| Path | What |
+| --- | --- |
+| `packages/core/` | Rust crate wrapping `milli` with `#[napi]` bindings |
+| `packages/api/` | TypeScript SDK mirroring `meilisearch-js` conventions |
+| `native/meilisearch/` | Vendored Meilisearch `v1.48.3` subtree, kept read-only |
+| `.github/workflows/` | Lint, test, and npm release workflows |
 
-## Status
+## Current status
 
-Usable (first milestone):
+Implemented today:
 
-- `Engine` / `Client`: create/open/delete indexes, list indexes
-- `Index`:
-  - `addDocuments()` (real indexing via milli)
-  - `search()` (real search; minimal `offset`/`limit`/`attributesToRetrieve`)
-  - `updateSettings()` (basic settings; asynchronous task lifecycle + `waitForTask`)
-  - `getDocuments()` (minimal `offset`/`limit`/`fields`)
-- Task model: `getTask()` / `waitForTask()` with `enqueued -> processing -> succeeded/failed`
+- `Engine` / `Client`
+- create, open, delete, and list indexes
+- `Index.addDocuments()`
+- real document indexing through `milli`
+- `Index.search()`
+- real search with minimal `offset`, `limit`, and `attributesToRetrieve`
+- `Index.updateSettings()`
+- basic settings updates with asynchronous task tracking
+- `Index.getDocuments()`
+- minimal `offset`, `limit`, and `fields`
+- task APIs
+- `getTask()` / `waitForTask()` with `enqueued -> processing -> succeeded/failed`
 
-Local verification:
+Generated bindings:
+
+- `packages/core/index.js` and `packages/core/index.d.ts` are generated by `napi build`
+- those generated files are committed so `packages/api` can lint and build without rebuilding the native addon first
+
+## Local development
+
+Install dependencies:
 
 ```bash
 pnpm install
+```
+
+Build the native addon:
+
+```bash
+pnpm run build:core
+```
+
+Build the SDK:
+
+```bash
+pnpm --filter @meilisearch-bridge/api build
+```
+
+Run SDK tests:
+
+```bash
+pnpm --filter @meilisearch-bridge/api test
+```
+
+Full local API verification:
+
+```bash
 pnpm run verify:api
 ```
 
-## Next
+CI-style API verification with prebuilt core artifacts already present:
 
-- Add a publish CI that builds platform binaries with napi-rs and publishes packages to npm (align with napi-rs official templates and best practices).
-- Extend settings/search options coverage toward the full `meilisearch-js` surface (facets, filters, pagination variants, etc.).
-- Consider a full `index-scheduler` integration once task semantics and storage requirements are finalized.
+```bash
+pnpm run verify:api:ci
+```
+
+## CI and release
+
+- `.github/workflows/lint.yml`
+  - checks Rust formatting and TypeScript type-checking
+- `.github/workflows/test-suite.yml`
+  - builds the native addon, uploads generated bindings and `.node` artifacts, then runs API build and tests
+- `.github/workflows/release.yml`
+  - builds target-specific binaries, verifies them across platforms, and publishes `@meilisearch-bridge/core` plus `@meilisearch-bridge/api` on release commits
+
+## Remaining work
+
+- extend settings and search coverage toward more of the `meilisearch-js` surface
+- keep release automation aligned with current `napi-rs` templates as those evolve
+- decide whether task persistence should stay lightweight or move closer to upstream internals later
 
 ## Vendoring policy
 
-`native/meilisearch/` is a `git subtree` of [meilisearch/meilisearch](https://github.com/meilisearch/meilisearch) pinned at tag **`v1.48.3`**. We **do not modify its contents**. To upgrade:
+`native/meilisearch/` is a `git subtree` of [meilisearch/meilisearch](https://github.com/meilisearch/meilisearch) pinned at tag **`v1.48.3`**. Its contents are treated as read-only. To upgrade:
 
 ```bash
 git subtree pull --prefix=native/meilisearch \
   https://github.com/meilisearch/meilisearch.git <new-tag> --squash
 ```
 
-> Note: the upstream repo contains an `AGENTS.md` declaring that AI agents must not engage with their forge features (issues, PRs, discussions). We respect that — this project consumes their library code only and does not open any upstream issues/PRs.
+> The upstream repository includes its own `AGENTS.md` guidance. This project consumes vendored upstream code only and does not use this repository to interact with upstream issues, PRs, or discussions.

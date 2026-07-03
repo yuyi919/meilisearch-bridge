@@ -8,18 +8,22 @@ Expose Meilisearch’s search engine as a Node.js addon (napi-rs) and ship a Typ
 
 ## High-level architecture
 
-- `packages/core/` — Rust + napi-rs native addon
-  - Wraps vendored `milli` (Meilisearch search engine) and exposes `Engine`, `Index`, tasks, and result types to Node.js.
-- `packages/api/` — TypeScript SDK
-  - A higher-level SDK that aims to mirror `meilisearch-js`’s ergonomics while calling into `@meilisearch-bridge/core`.
-- `native/meilisearch/` — Vendored upstream (git subtree)
-  - Read-only copy of Meilisearch pinned at a tag. This repo does not modify vendored upstream code.
+- `packages/core/`
+  - Rust + napi-rs native addon
+  - Wraps vendored `milli` and generates `index.js` plus `index.d.ts`
+- `packages/api/`
+  - TypeScript SDK that consumes `@meilisearch-bridge/core`
+  - Tracks `meilisearch-js` ergonomics where implemented
+- `native/meilisearch/`
+  - Vendored upstream subtree
+  - Read-only inside this repository
 
 ## Repository constraints
 
 - Do not modify `native/meilisearch/` (vendored upstream). Upgrade only via `git subtree pull`.
-- Keep the public API stable and test-driven: changes in `packages/core` must be reflected in `packages/api` and covered by tests.
+- Keep the public API stable: changes in `packages/core` must be reflected in `packages/api` and covered by tests where behavior changes.
 - Prefer aligning with upstream conventions (Meilisearch + napi-rs) over inventing new shapes.
+- Treat `packages/core/index.js` and `packages/core/index.d.ts` as committed generated artifacts. If native exports change, regenerate them with `pnpm run build:core`.
 
 ## Common commands
 
@@ -47,21 +51,29 @@ Build core native addon:
 pnpm run build:core
 ```
 
+Build or test the SDK only:
+
+```bash
+pnpm --filter @meilisearch-bridge/api build
+pnpm --filter @meilisearch-bridge/api test
+```
+
 ## CI overview
 
 - `.github/workflows/lint.yml`
-  - Runs `cargo fmt --check` and `tsc --noEmit`.
+  - Runs generated binding presence checks, Rust formatting, and TypeScript type-checking.
 - `.github/workflows/test-suite.yml`
-  - Builds the native addon, uploads build artifacts, then runs the TypeScript build/test job using those artifacts.
+  - Builds the native addon, uploads generated bindings and `.node` artifacts, then runs the TypeScript build/test job using those artifacts.
+- `.github/workflows/release.yml`
+  - Builds target-specific binaries, verifies them, and publishes npm packages on release commits.
 
-## Release / publishing (planned)
+## Plans and specs
 
-The repository currently lacks a full “build matrix + publish to npm” pipeline.
-The next step is to add a publish workflow aligned with napi-rs official templates:
-
-- build per target triple (linux/macos/windows)
-- run `napi prepublish` and publish to npm using `NPM_TOKEN`
-- attach artifacts / provenance as appropriate
+- Active implementation docs live under `.trae/specs/`
+- Current index milestone docs:
+  - `.trae/specs/implement-complete-index-sdk/spec.md`
+  - `.trae/specs/implement-complete-index-sdk/tasks.md`
+  - `.trae/specs/implement-complete-index-sdk/checklist.md`
 
 ## Where to start reading code
 

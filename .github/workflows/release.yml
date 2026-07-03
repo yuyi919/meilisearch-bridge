@@ -32,6 +32,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Check generated core bindings
+        run: |
+          test -s packages/core/index.d.ts
+          test -s packages/core/index.js
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
       - name: Setup node
