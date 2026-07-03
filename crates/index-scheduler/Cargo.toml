@@ -1,0 +1,60 @@
+[package]
+name = "index-scheduler"
+publish = false
+
+version.workspace = true
+authors.workspace = true
+description.workspace = true
+homepage.workspace = true
+readme.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1.0.102"
+byte-unit = "5.2.0"
+bytes = "1.11.1"
+bumpalo = "3.20.3"
+convert_case = "0.9.0"
+dump = { path = "../dump" }
+enum-iterator = "2.3.0"
+file-store = { path = "../file-store" }
+flate2 = "1.1.5"
+hashbrown = "0.15.5"
+http-client = { path = "../http-client" }
+indexmap = "2.12.0"
+meilisearch-auth = { path = "../meilisearch-auth" }
+meilisearch-types = { path = "../meilisearch-types" }
+memmap2 = "0.9.9"
+page_size = "0.6.0"
+rayon = "1.11.0"
+roaring = { version = "0.10.12", features = ["serde"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = { version = "1.0.150", features = ["preserve_order"] }
+tar = { version = "0.4.46", default-features = false }
+synchronoise = "1.0.1"
+tempfile = "3.23.0"
+thiserror = "2.0.17"
+either = "1.15.0"
+time = { version = "0.3.47", features = [
+    "serde-well-known",
+    "formatting",
+    "parsing",
+    "macros",
+] }
+tracing = "0.1.41"
+uuid = { version = "1.18.1", features = ["serde", "v4"] }
+backoff = { version = "0.4.0", features = ["futures", "tokio"] }
+rusty-s3 = "0.8.1"
+tokio = { version = "1.52.3", features = ["full"] }
+
+[dev-dependencies]
+big_s = "1.0.2"
+crossbeam-channel = "0.5.15"
+# fixed version due to format breakages in v1.40
+insta = { version = "=1.39.0", features = ["json", "redactions"] }
+maplit = "1.0.2"
+meili-snap = { path = "../meili-snap" }
+
+[features]
+enterprise = ["meilisearch-types/enterprise"]
