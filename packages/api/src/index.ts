@@ -14,7 +14,9 @@
 import {
   Engine as NativeEngine,
   Index as NativeIndex,
+  type GetDocumentsOptions as NativeGetDocumentsOptions,
   type IndexSettingsUpdate as NativeIndexSettingsUpdate,
+  type SearchOptions as NativeSearchOptions,
   type TaskInfo as NativeTaskInfo,
 } from '@meilisearch-bridge/core';
 
@@ -39,6 +41,18 @@ export interface UpdateSettingsPayload {
   sortableAttributes?: string[];
 }
 
+export interface GetDocumentsOptions {
+  offset?: number;
+  limit?: number;
+  fields?: string[];
+}
+
+export interface SearchOptions {
+  offset?: number;
+  limit?: number;
+  attributesToRetrieve?: string[];
+}
+
 export interface TaskDetails {
   receivedDocuments?: number;
   indexedDocuments?: number;
@@ -53,7 +67,7 @@ export interface Task {
   details?: TaskDetails;
   error?: string;
   enqueuedAt: string;
-  startedAt: string;
+  startedAt?: string;
   finishedAt?: string;
 }
 
@@ -63,7 +77,6 @@ export interface EnqueuedTask {
   status: string;
   type: string;
   enqueuedAt: string;
-  acceptedDocuments?: number;
 }
 
 /** Stable error codes surfaced from the native layer. */
@@ -153,7 +166,6 @@ function toEnqueuedTask(task: NativeTaskInfo): EnqueuedTask {
     status: task.status,
     type: task.type,
     enqueuedAt: task.enqueuedAt,
-    acceptedDocuments: task.details?.receivedDocuments,
   };
 }
 
@@ -246,12 +258,13 @@ export class Index {
   }
 
   /** Total number of documents stored in the index. */
-  async getDocuments(): Promise<{ results: unknown[]; total: number }> {
-    // meilisearch-js returns { results, offset, limit, total }; we expose the
-    // shape but don't actually fetch documents here yet (search not wired).
+  async getDocuments<T extends Record<string, unknown> = Record<string, unknown>>(
+    opts?: GetDocumentsOptions,
+  ): Promise<{ results: T[]; offset: number; limit: number; total: number }> {
     try {
-      const total = this.#native.documentCount();
-      return { results: [], total };
+      return (await this.#native.getDocuments(
+        opts as NativeGetDocumentsOptions | undefined,
+      )) as { results: T[]; offset: number; limit: number; total: number };
     } catch (e) {
       normalizeNativeError(e);
     }
@@ -260,11 +273,6 @@ export class Index {
   /**
    * Add or replace documents in the index. Mirrors
    * `meilisearch-js`'s `index.addDocuments()` signature.
-   *
-   * The first-cut implementation goes via NDJSON to keep the native surface
-   * minimal — the underlying Rust code still needs to be hooked up to
-   * milli's new Indexer pipeline for this to actually index the data.
-   * Until then this method returns the number of documents it accepted.
    */
   async addDocuments<T extends Record<string, unknown>>(
     documents: T[],
@@ -295,7 +303,7 @@ export class Index {
 
   async search<T extends Record<string, unknown>>(
     query: string,
-    _opts?: unknown,
+    opts?: SearchOptions,
   ): Promise<{
     hits: Array<T & { id: string; _rankingScore: number }>;
     estimatedTotalHits: number;
@@ -304,7 +312,11 @@ export class Index {
     isEmptyQuery: boolean;
   }> {
     try {
-      const results = await this.#native.search(query);
+      const results = await this.#native.search(query, {
+        offset: opts?.offset,
+        limit: opts?.limit,
+        attributesToRetrieve: opts?.attributesToRetrieve,
+      } as NativeSearchOptions);
       return {
         hits: results.hits.map((hit) => ({
           ...(hit.attributes as T),

@@ -25,7 +25,7 @@ pub struct TaskInfo {
     pub details: Option<TaskDetails>,
     pub error: Option<String>,
     pub enqueued_at: String,
-    pub started_at: String,
+    pub started_at: Option<String>,
     pub finished_at: Option<String>,
 }
 
@@ -60,7 +60,7 @@ impl TaskStore {
         })
     }
 
-    pub fn create_succeeded_task(
+    pub fn create_enqueued_task(
         &self,
         index_uid: Option<String>,
         task_type: impl Into<String>,
@@ -71,16 +71,59 @@ impl TaskStore {
         let task = TaskInfo {
             uid,
             index_uid,
-            status: "succeeded".to_string(),
+            status: "enqueued".to_string(),
             r#type: task_type.into(),
             details,
             error: None,
-            enqueued_at: now.clone(),
-            started_at: now.clone(),
-            finished_at: Some(now),
+            enqueued_at: now,
+            started_at: None,
+            finished_at: None,
         };
         self.persist(&task)?;
         Ok(task)
+    }
+
+    pub fn mark_processing(&self, uid: u32) -> BridgeResult<TaskInfo> {
+        let mut task = self.get(uid)?;
+        task.status = "processing".to_string();
+        if task.started_at.is_none() {
+            task.started_at = Some(now_string());
+        }
+        self.persist(&task)?;
+        Ok(task)
+    }
+
+    pub fn mark_succeeded(&self, uid: u32, details: Option<TaskDetails>) -> BridgeResult<TaskInfo> {
+        let mut task = self.get(uid)?;
+        let now = now_string();
+        task.status = "succeeded".to_string();
+        task.error = None;
+        if task.started_at.is_none() {
+            task.started_at = Some(now.clone());
+        }
+        if details.is_some() {
+            task.details = details;
+        }
+        task.finished_at = Some(now);
+        self.persist(&task)?;
+        Ok(task)
+    }
+
+    pub fn mark_failed(&self, uid: u32, error: impl Into<String>) -> BridgeResult<TaskInfo> {
+        let mut task = self.get(uid)?;
+        let now = now_string();
+        task.status = "failed".to_string();
+        task.error = Some(error.into());
+        if task.started_at.is_none() {
+            task.started_at = Some(now.clone());
+        }
+        task.finished_at = Some(now);
+        self.persist(&task)?;
+        Ok(task)
+    }
+
+    pub fn is_terminal(task: &TaskInfo) -> bool {
+        matches!(task.status.as_str(), "succeeded" | "failed")
     }
 
     pub fn get(&self, uid: u32) -> BridgeResult<TaskInfo> {

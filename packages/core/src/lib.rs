@@ -27,6 +27,6 @@ pub mod task;
 
 pub use engine::Engine;
 pub use errors::{BridgeError, BridgeErrorCode, BridgeResult};
-pub use index::Index;
+pub use index::{GetDocumentsOptions, GetDocumentsResults, Index, IndexSettingsUpdate, SearchOptions};
 pub use search::{DocumentHit, SearchResults};
 pub use task::{TaskDetails, TaskInfo, TaskStore};

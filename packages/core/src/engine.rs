@@ -246,7 +246,13 @@ impl Engine {
             let started = std::time::Instant::now();
             loop {
                 match task_store.get(task_uid) {
-                    Ok(task) => return Ok(task),
+                    Ok(task) if TaskStore::is_terminal(&task) => return Ok(task),
+                    Ok(task) if started.elapsed() >= Duration::from_millis(timeout_ms as u64) => {
+                        return Ok(task);
+                    }
+                    Ok(_) => {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
                     Err(err)
                         if matches!(err.code, BridgeErrorCode::TaskNotFound)
                             && started.elapsed() < Duration::from_millis(timeout_ms as u64) =>

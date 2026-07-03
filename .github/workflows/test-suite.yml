@@ -85,12 +85,8 @@ jobs:
       - name: tsc (api)
         working-directory: packages/api
         run: pnpm run lint
-      - name: build (api)
-        working-directory: packages/api
-        run: pnpm run build
-      - name: test (api)
-        working-directory: packages/api
-        run: pnpm test
+      - name: verify api build + test order
+        run: pnpm run verify:api:ci
 
   # ─── Upstream-version sanity check ───────────────────────────────────────
   upstream-pinned:

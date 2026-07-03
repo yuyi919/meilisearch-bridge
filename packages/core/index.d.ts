@@ -10,6 +10,22 @@ export interface IndexSettingsUpdate {
   filterableAttributes?: Array<string>
   sortableAttributes?: Array<string>
 }
+export interface GetDocumentsOptions {
+  offset?: number
+  limit?: number
+  fields?: Array<string>
+}
+export interface GetDocumentsResults {
+  results: Array<any>
+  offset: number
+  limit: number
+  total: number
+}
+export interface SearchOptions {
+  offset?: number
+  limit?: number
+  attributesToRetrieve?: Array<string>
+}
 /**
  * A single document hit in search results.
  *
@@ -56,7 +72,7 @@ export interface TaskInfo {
   details?: TaskDetails
   error?: string
   enqueuedAt: string
-  startedAt: string
+  startedAt?: string
   finishedAt?: string
 }
 /**
@@ -106,6 +122,7 @@ export declare class Index {
   get primaryKey(): string | null
   /** Total number of documents currently stored in the index. */
   documentCount(): number
+  getDocuments(options?: GetDocumentsOptions | undefined | null): Promise<GetDocumentsResults>
   /**
    * Bulk-load documents from a newline-delimited JSON string.
    *
@@ -117,5 +134,5 @@ export declare class Index {
    */
   addDocumentsFromNdjson(ndjson: string): Promise<TaskInfo>
   updateSettings(settings: IndexSettingsUpdate): Promise<TaskInfo>
-  search(query: string): Promise<SearchResults>
+  search(query: string, options?: SearchOptions | undefined | null): Promise<SearchResults>
 }

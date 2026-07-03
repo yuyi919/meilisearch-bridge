@@ -1,8 +1,8 @@
-- [ ] `packages/core` 不再返回随机或伪造的任务结果，而是提供真实任务对象与任务等待能力
-- [ ] `Index.addDocuments()` 完成后，写入文档可被后续真实搜索命中
-- [ ] `Index.search()` 不再抛出“未实现”，并返回稳定的结果结构
-- [ ] `Index.updateSettings()` 走真实任务路径，并在任务完成后影响搜索行为
-- [ ] `packages/api` 的主要 `Client` / `Index` 方法签名与官方 `meilisearch-js` 常用体验保持一致或明确标注差异
-- [ ] Rust core 与 TypeScript SDK 的错误映射稳定且可在测试中断言
-- [ ] `packages/api` 自动化测试覆盖索引创建、文档写入、任务等待、搜索、设置更新与错误场景
-- [ ] 相关 CI 工作流具备运行第一阶段核心能力所需的构建顺序与工具链组件
+- [x] `packages/core` 不再返回随机或伪造的任务结果，而是提供真实任务对象与任务等待能力
+- [x] `Index.addDocuments()` 完成后，写入文档可被后续真实搜索命中
+- [x] `Index.search()` 不再抛出“未实现”，并返回稳定的结果结构
+- [x] `Index.updateSettings()` 走真实任务路径，并在任务完成后影响搜索行为
+- [x] `packages/api` 的主要 `Client` / `Index` 方法签名与官方 `meilisearch-js` 常用体验保持一致或明确标注差异
+- [x] Rust core 与 TypeScript SDK 的错误映射稳定且可在测试中断言
+- [x] `packages/api` 自动化测试覆盖索引创建、文档写入、任务等待、搜索、设置更新与错误场景
+- [x] 相关 CI 工作流具备运行第一阶段核心能力所需的构建顺序与工具链组件
