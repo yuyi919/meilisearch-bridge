@@ -19,12 +19,12 @@
 #![deny(rust_2018_idioms)]
 #![warn(unused_must_use)]
 
-pub mod errors;
 pub mod engine;
+pub mod errors;
 pub mod index;
 pub mod search;
 
 pub use engine::Engine;
 pub use errors::{BridgeError, BridgeErrorCode, BridgeResult};
 pub use index::Index;
-pub use search::{SearchResults, DocumentHit};
+pub use search::{DocumentHit, SearchResults};

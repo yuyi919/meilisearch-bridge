@@ -17,7 +17,6 @@ use std::sync::Arc;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use parking_lot::Mutex;
-use serde_json::Value;
 use tokio::sync::RwLock;
 
 use crate::errors::{into_js, BridgeError, BridgeErrorCode, BridgeResult};
@@ -32,10 +31,10 @@ pub struct Engine {
     /// Directory holding the index subdirectories.
     base_path: PathBuf,
     /// Cache of currently-open `Index` handles, keyed by uid.
-    open_indexes: RwLock<hashbrown::HashMap<String, Arc<Mutex<milli::Index>>>>,
+    open_indexes: Arc<RwLock<hashbrown::HashMap<String, Arc<Mutex<milli::Index>>>>>,
     /// LMDB env-open options shared by all indexes. We default to a 4 GiB map
     /// size, matching the value meilisearch uses for production.
-    env_builder: heed::EnvOpenOptions,
+    env_builder: heed::EnvOpenOptions<heed::WithoutTls>,
     /// Lock guarding filesystem mutation (create/delete index) — LMDB doesn't
     /// tolerate concurrent env creation on the same path.
     fs_lock: Mutex<()>,
@@ -56,11 +55,11 @@ impl Engine {
             }
             .into());
         }
-        let mut env_builder = heed::EnvOpenOptions::new();
+        let mut env_builder = heed::EnvOpenOptions::new().read_txn_without_tls();
         env_builder.map_size(4 * 1024 * 1024 * 1024); // 4 GiB
         Ok(Self {
             base_path: path,
-            open_indexes: RwLock::new(hashbrown::HashMap::new()),
+            open_indexes: Arc::new(RwLock::new(hashbrown::HashMap::new())),
             env_builder,
             fs_lock: Mutex::new(()),
         })
@@ -110,7 +109,11 @@ impl Engine {
                 });
             }
             std::fs::create_dir_all(&index_path)?;
-            let _ = milli::Index::new(builder, &index_path, milli::CreateOrOpen::Create)?;
+            let _ = milli::Index::new(
+                builder,
+                &index_path,
+                milli::CreateOrOpen::create_without_shards(),
+            )?;
             Ok(())
         })
         .await
@@ -126,11 +129,7 @@ impl Engine {
     /// `primary_key` is required only when creating — if the index already
     /// exists it's ignored.
     #[napi]
-    pub async fn get_index(
-        &self,
-        uid: String,
-        primary_key: Option<String>,
-    ) -> napi::Result<Index> {
+    pub async fn get_index(&self, uid: String, primary_key: Option<String>) -> napi::Result<Index> {
         let base = self.base_path.clone();
         let builder = self.env_builder.clone();
         let open_indexes = self.open_indexes.clone();
@@ -144,7 +143,7 @@ impl Engine {
             let create_or_open = if already_exists {
                 milli::CreateOrOpen::Open
             } else {
-                milli::CreateOrOpen::Create
+                milli::CreateOrOpen::create_without_shards()
             };
             let milli_index = milli::Index::new(builder, &index_path, create_or_open)?;
 

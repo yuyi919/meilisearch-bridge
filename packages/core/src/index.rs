@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
+use milli::documents::DocumentsBatchBuilder;
 use parking_lot::Mutex;
 use serde_json::Value;
 
@@ -36,12 +37,12 @@ impl Index {
     /// Internal constructor used by `Engine::getIndex`. Not exposed to JS
     /// directly — JS callers go through `Engine::getIndex()`.
     #[doc(hidden)]
-    pub fn new(
-        uid: String,
-        primary_key: Option<String>,
-        inner: Arc<Mutex<milli::Index>>,
-    ) -> Self {
-        Self { uid, primary_key, inner }
+    pub fn new(uid: String, primary_key: Option<String>, inner: Arc<Mutex<milli::Index>>) -> Self {
+        Self {
+            uid,
+            primary_key,
+            inner,
+        }
     }
 
     /// The uid of this index.
@@ -60,11 +61,8 @@ impl Index {
     #[napi]
     pub fn document_count(&self) -> napi::Result<u32> {
         let inner = self.inner.lock();
-        let rtxn = into_js(inner.read_txn().map_err(|e| BridgeError {
-            code: BridgeErrorCode::IoError,
-            message: e.to_string(),
-        }))?;
-        let n: u64 = into_js(inner.number_of_documents(&rtxn))?;
+        let rtxn = into_js(inner.read_txn().map_err(BridgeError::from))?;
+        let n: u64 = into_js(inner.number_of_documents(&rtxn).map_err(BridgeError::from))?;
         // Clamp to u32 for JS — practical indexes fit in u32 anyway.
         Ok(n.min(u32::MAX as u64) as u32)
     }
@@ -108,25 +106,26 @@ impl Index {
             // in-memory buffer, then hand it to the indexer. For now we just
             // count what we accepted — full indexing requires wiring up
             // `IndexDocuments` + `IndexerConfig`, which is the next milestone.
-            let mut buf: Vec<u8> = Vec::new();
-            let mut builder = milli::update::index_documents::DocumentsBatchBuilder::new(&mut buf);
+            let mut builder = DocumentsBatchBuilder::new(Vec::new());
             for obj in &parsed {
                 let obj_map = obj.as_object().ok_or_else(|| BridgeError {
                     code: BridgeErrorCode::InvalidArgument,
                     message: "each document must be a JSON object".to_string(),
                 })?;
-                builder.append_json_object(obj_map).map_err(|e| BridgeError {
-                    code: BridgeErrorCode::IoError,
-                    message: e.to_string(),
-                })?;
+                builder
+                    .append_json_object(obj_map)
+                    .map_err(|e| BridgeError {
+                        code: BridgeErrorCode::IoError,
+                        message: e.to_string(),
+                    })?;
             }
             let added = builder.documents_count();
-            drop(builder);
+            let _batch = builder.into_inner().map_err(BridgeError::from)?;
             wtxn.commit().map_err(|e| BridgeError {
                 code: BridgeErrorCode::IoError,
                 message: e.to_string(),
             })?;
-            Ok(added)
+            Ok::<u32, BridgeError>(added)
         })
         .await
         .map_err(|e| BridgeError {
@@ -144,8 +143,9 @@ impl Index {
     pub async fn search(&self, _query: String) -> napi::Result<SearchResults> {
         Err(BridgeError {
             code: BridgeErrorCode::Internal,
-            message: "search() is not yet implemented in this milestone; see packages/core/src/index.rs"
-                .to_string(),
+            message:
+                "search() is not yet implemented in this milestone; see packages/core/src/index.rs"
+                    .to_string(),
         }
         .into())
     }

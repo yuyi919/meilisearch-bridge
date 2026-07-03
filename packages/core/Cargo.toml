@@ -1,5 +1,5 @@
 [package]
-name = "@meilisearch-bridge/core"
+name = "meilisearch-bridge-core"
 version = "0.0.0"
 edition = "2021"
 description = "napi-rs native addon wrapping Meilisearch's milli search engine"
@@ -10,7 +10,7 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-napi = { version = "2", default-features = false, features = ["napi9", "serde-json"] }
+napi = { version = "2", default-features = false, features = ["napi9", "serde-json", "tokio_rt"] }
 napi-derive = "2"
 
 # milli — vendored as a subtree under ../../native/meilisearch/
@@ -32,6 +32,7 @@ json-depth-checker  = { path = "../../native/meilisearch/crates/json-depth-check
 #   - `hashbrown::HashMap` for the open-index handle cache
 #   - `tokio` runtime for offloading milli blocking calls to libuv worker pool
 serde_json = { version = "1", features = ["preserve_order"] }
+serde      = { version = "1", features = ["derive"] }
 heed       = { version = "0.22", default-features = false, features = ["serde-json", "serde-bincode"] }
 parking_lot = "0.12"
 hashbrown  = "0.15"

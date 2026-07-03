@@ -39,8 +39,6 @@ jobs:
         run: npm install -g @napi-rs/cli
       - name: Install pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - name: Install node deps
         run: pnpm install --frozen-lockfile=false
       - name: cargo fmt
@@ -67,8 +65,6 @@ jobs:
         with:
           node-version: 20
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - run: pnpm install --frozen-lockfile=false
       - name: tsc (api)
         working-directory: packages/api

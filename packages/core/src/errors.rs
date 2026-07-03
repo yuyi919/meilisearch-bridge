@@ -6,7 +6,6 @@
 //! message preserved.
 
 use napi::bindgen_prelude::*;
-use napi::JsError;
 use std::fmt;
 
 /// JS-facing error codes. These are stable strings that TypeScript code can
@@ -45,6 +44,24 @@ impl fmt::Display for BridgeErrorCode {
     }
 }
 
+impl BridgeErrorCode {
+    fn to_napi_status(self) -> napi::Status {
+        match self {
+            Self::InvalidArgument => napi::Status::InvalidArg,
+            Self::IndexAlreadyExists => napi::Status::GenericFailure,
+            Self::IndexNotFound => napi::Status::GenericFailure,
+            Self::DocumentNotFound => napi::Status::GenericFailure,
+            Self::InvalidDatabaseState => napi::Status::GenericFailure,
+            Self::SettingsUpdateInvalid => napi::Status::GenericFailure,
+            Self::SearchError => napi::Status::GenericFailure,
+            Self::TooManyDocuments => napi::Status::GenericFailure,
+            Self::OutOfBound => napi::Status::GenericFailure,
+            Self::Internal => napi::Status::GenericFailure,
+            Self::IoError => napi::Status::GenericFailure,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct BridgeError {
     pub code: BridgeErrorCode,
@@ -59,17 +76,12 @@ impl fmt::Display for BridgeError {
 
 impl std::error::Error for BridgeError {}
 
-impl From<BridgeError> for JsError {
+impl From<BridgeError> for napi::Error {
     fn from(e: BridgeError) -> Self {
-        // We attach `code` as a string property so JS code can switch on it.
-        // Pattern: throw new MeilisearchBridgeError(code, message)
-        let mut err = JsError::from_reason(e.message.clone());
-        // Attach `code` so JS can introspect. This is the standard napi-rs pattern.
-        // SAFETY: `err` is a freshly-constructed JsError; we extend it with a string property.
-        unsafe {
-            let _ = err.set_named_property("code", e.code.to_string());
-        }
-        err
+        napi::Error::new(
+            e.code.to_napi_status(),
+            format!("{}: {}", e.code, e.message),
+        )
     }
 }
 
@@ -83,33 +95,26 @@ impl From<milli::Error> for BridgeError {
             M::InternalError(_) => BridgeErrorCode::Internal,
             M::UserError(_) => BridgeErrorCode::InvalidArgument,
         };
-        Self { code, message: e.to_string() }
-    }
-}
-
-impl From<milli::Error> for JsError {
-    fn from(e: milli::Error) -> Self {
-        BridgeError::from(e).into()
+        Self {
+            code,
+            message: e.to_string(),
+        }
     }
 }
 
 impl From<std::io::Error> for BridgeError {
     fn from(e: std::io::Error) -> Self {
-        Self { code: BridgeErrorCode::IoError, message: e.to_string() }
+        Self {
+            code: BridgeErrorCode::IoError,
+            message: e.to_string(),
+        }
     }
 }
 
 /// Convenience alias used throughout the crate.
-pub type BridgeResult<T> = Result<T, BridgeError>;
+pub type BridgeResult<T> = std::result::Result<T, BridgeError>;
 
 // Re-export for use in #[napi] functions which need to return napi::Result<T>.
 pub fn into_js<T>(r: BridgeResult<T>) -> napi::Result<T> {
-    r.map_err(|e| {
-        let msg = e.message.clone();
-        let mut err: JsError = e.into();
-        // Surface the message as the error reason too (JsError::from_reason already does,
-        // but be explicit to make sure).
-        let _ = msg; // suppress unused warning when reason was already set
-        err
-    })
+    r.map_err(Into::into)
 }
