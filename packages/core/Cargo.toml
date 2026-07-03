@@ -11,7 +11,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 napi = { version = "2", default-features = false, features = ["napi9", "serde-json", "tokio_rt"] }
-napi-derive = "2"
+napi-derive = { workspace = true }
 
 # milli — vendored as a subtree under ../../native/meilisearch/
 milli = { path = "../../native/meilisearch/crates/milli" }
@@ -37,6 +37,9 @@ heed       = { version = "0.22", default-features = false, features = ["serde-js
 parking_lot = "0.12"
 hashbrown  = "0.15"
 tokio      = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+
+[workspace.dependencies]
+napi-derive = "2"
 
 [build-dependencies]
 napi-build = "2"
