@@ -292,5 +292,8 @@ fn apply_primary_key(
 
 fn read_primary_key(index: &milli::Index) -> BridgeResult<Option<String>> {
     let rtxn = index.read_txn().map_err(BridgeError::from)?;
-    Ok(index.primary_key(&rtxn).map_err(BridgeError::from)?.map(ToOwned::to_owned))
+    Ok(index
+        .primary_key(&rtxn)
+        .map_err(BridgeError::from)?
+        .map(ToOwned::to_owned))
 }

@@ -138,7 +138,8 @@ impl Index {
                 .take(limit)
             {
                 let (_docid, obkv) = entry.map_err(BridgeError::from)?;
-                let attributes = milli::all_obkv_to_json(obkv, &fields_ids_map).map_err(BridgeError::from)?;
+                let attributes =
+                    milli::all_obkv_to_json(obkv, &fields_ids_map).map_err(BridgeError::from)?;
                 documents.push(serde_json::Value::Object(filter_attributes(
                     attributes,
                     options.fields.as_deref(),
@@ -276,7 +277,8 @@ impl Index {
                 .into_iter()
                 .zip(executed.document_scores.iter())
                 .map(|((docid, obkv), score_details)| {
-                    let attributes = milli::all_obkv_to_json(obkv, &fields_ids_map).map_err(BridgeError::from)?;
+                    let attributes = milli::all_obkv_to_json(obkv, &fields_ids_map)
+                        .map_err(BridgeError::from)?;
                     let id = extract_external_id(
                         &attributes,
                         primary_key.read().clone().as_deref(),
@@ -284,7 +286,9 @@ impl Index {
                     );
                     Ok(DocumentHit {
                         id,
-                        score: milli::score_details::ScoreDetails::global_score(score_details.iter()),
+                        score: milli::score_details::ScoreDetails::global_score(
+                            score_details.iter(),
+                        ),
                         attributes: serde_json::Value::Object(filter_attributes(
                             attributes,
                             options.attributes_to_retrieve.as_deref(),
@@ -323,16 +327,19 @@ fn process_document_addition(
             code: BridgeErrorCode::InvalidArgument,
             message: "each document must be a JSON object".to_string(),
         })?;
-        builder.append_json_object(obj_map).map_err(|e| BridgeError {
-            code: BridgeErrorCode::IoError,
-            message: e.to_string(),
-        })?;
+        builder
+            .append_json_object(obj_map)
+            .map_err(|e| BridgeError {
+                code: BridgeErrorCode::IoError,
+                message: e.to_string(),
+            })?;
     }
     let batch = builder.into_inner().map_err(BridgeError::from)?;
-    let reader = DocumentsBatchReader::from_reader(Cursor::new(batch)).map_err(|e| BridgeError {
-        code: BridgeErrorCode::InvalidArgument,
-        message: e.to_string(),
-    })?;
+    let reader =
+        DocumentsBatchReader::from_reader(Cursor::new(batch)).map_err(|e| BridgeError {
+            code: BridgeErrorCode::InvalidArgument,
+            message: e.to_string(),
+        })?;
 
     let idx = inner.lock();
     let mut wtxn = idx.write_txn().map_err(BridgeError::from)?;
@@ -357,7 +364,9 @@ fn process_document_addition(
     let _ = indexer.execute()?;
     wtxn.commit().map_err(BridgeError::from)?;
     let resolved_primary_key = idx.read_txn().map_err(BridgeError::from).and_then(|rtxn| {
-        idx.primary_key(&rtxn).map_err(BridgeError::from).map(|value| value.map(str::to_owned))
+        idx.primary_key(&rtxn)
+            .map_err(BridgeError::from)
+            .map(|value| value.map(str::to_owned))
     })?;
     *primary_key.write() = resolved_primary_key;
 
@@ -409,7 +418,9 @@ fn process_settings_update(
 
     wtxn.commit().map_err(BridgeError::from)?;
     let resolved_primary_key = idx.read_txn().map_err(BridgeError::from).and_then(|rtxn| {
-        idx.primary_key(&rtxn).map_err(BridgeError::from).map(|value| value.map(str::to_owned))
+        idx.primary_key(&rtxn)
+            .map_err(BridgeError::from)
+            .map(|value| value.map(str::to_owned))
     })?;
     *primary_key.write() = resolved_primary_key;
 
@@ -449,7 +460,12 @@ fn filter_attributes(
     match fields {
         Some(fields) => fields
             .iter()
-            .filter_map(|field| attributes.get(field).cloned().map(|value| (field.clone(), value)))
+            .filter_map(|field| {
+                attributes
+                    .get(field)
+                    .cloned()
+                    .map(|value| (field.clone(), value))
+            })
             .collect(),
         None => attributes,
     }
