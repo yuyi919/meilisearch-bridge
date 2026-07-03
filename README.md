@@ -32,17 +32,38 @@ The official `meilisearch-js` SDK is a thin HTTP client for a separate `meilisea
 
 ## Layout
 
-| Path                          | What                                                     |
-| ----------------------------- | -------------------------------------------------------- |
-| `packages/core/`              | Rust crate wrapping milli with `#[napi]` bindings        |
-| `packages/api/`               | TypeScript SDK, mirrors `meilisearch-js` API surface     |
-| `native/meilisearch/`         | Vendored Meilisearch v1.48.3 (read-only, via `git subtree`) |
-| `pnpm-workspace.yaml`         | Workspace root                                           |
-| `.github/workflows/`          | CI mirroring upstream Meilisearch style                  |
+| Path                  | What                                                        |
+| --------------------- | ----------------------------------------------------------- |
+| `packages/core/`      | Rust crate wrapping milli with `#[napi]` bindings           |
+| `packages/api/`       | TypeScript SDK, mirrors `meilisearch-js` API surface        |
+| `native/meilisearch/` | Vendored Meilisearch v1.48.3 (read-only, via `git subtree`) |
+| `pnpm-workspace.yaml` | Workspace root                                              |
+| `.github/workflows/`  | CI mirroring upstream Meilisearch style                     |
 
 ## Status
 
-🚧 Under construction. The first usable surface will be `Index` operations: `addDocuments`, `search`, `updateSettings`. Tasks / dump / vector search will follow.
+Usable (first milestone):
+
+- `Engine` / `Client`: create/open/delete indexes, list indexes
+- `Index`:
+  - `addDocuments()` (real indexing via milli)
+  - `search()` (real search; minimal `offset`/`limit`/`attributesToRetrieve`)
+  - `updateSettings()` (basic settings; asynchronous task lifecycle + `waitForTask`)
+  - `getDocuments()` (minimal `offset`/`limit`/`fields`)
+- Task model: `getTask()` / `waitForTask()` with `enqueued -> processing -> succeeded/failed`
+
+Local verification:
+
+```bash
+pnpm install
+pnpm run verify:api
+```
+
+## Next
+
+- Add a publish CI that builds platform binaries with napi-rs and publishes packages to npm (align with napi-rs official templates and best practices).
+- Extend settings/search options coverage toward the full `meilisearch-js` surface (facets, filters, pagination variants, etc.).
+- Consider a full `index-scheduler` integration once task semantics and storage requirements are finalized.
 
 ## Vendoring policy
 
