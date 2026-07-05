@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "Rust Performance & Safety Patterns": {
+      "source": "pmcfadin/cqlite",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/rust-patterns/SKILL.md",
+      "computedHash": "9bfe1f2e2aeaa709409ec90a0531bce4a561ec08d2fd915520eb133c3e99f5be"
+    },
+    "napi-rs-node-bindings": {
+      "source": "pmcfadin/cqlite",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/napi-rs-node-bindings/SKILL.md",
+      "computedHash": "90c38e1748e4e46297321697d5c0a8af2dc8449887760c533bc653ae4793bae3"
+    }
+  }
+}

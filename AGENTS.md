@@ -12,7 +12,7 @@ Expose Meilisearch’s search engine as a Node.js addon (napi-rs) and ship a Typ
   - Rust + napi-rs native addon
   - Wraps vendored `milli` and generates `index.js` plus `index.d.ts`
 - `packages/api/`
-  - TypeScript SDK that consumes `@meilisearch-bridge/core`
+  - TypeScript SDK that consumes `@yuyi919/meilisearch-bridge-core`
   - Tracks `meilisearch-js` ergonomics where implemented
 - `native/meilisearch/`
   - Vendored upstream subtree
@@ -39,7 +39,7 @@ Local “API milestone” verification (lint + build + test, with correct core �
 pnpm run verify:api
 ```
 
-CI-style verification (assumes `@meilisearch-bridge/core` build artifacts are already present, e.g. downloaded in CI):
+CI-style verification (assumes `@yuyi919/meilisearch-bridge-core` build artifacts are already present, e.g. downloaded in CI):
 
 ```bash
 pnpm run verify:api:ci
@@ -54,8 +54,8 @@ pnpm run build:core
 Build or test the SDK only:
 
 ```bash
-pnpm --filter @meilisearch-bridge/api build
-pnpm --filter @meilisearch-bridge/api test
+pnpm --filter @yuyi919/meilisearch-bridge build
+pnpm --filter @yuyi919/meilisearch-bridge test
 ```
 
 ## CI overview

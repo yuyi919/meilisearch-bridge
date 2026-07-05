@@ -38,3 +38,6 @@ yarn-error.log*
 index.linux-*
 index.darwin-*
 index.win32-*
+
+.trae/skills/
+.claude/skills/
