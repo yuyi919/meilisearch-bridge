@@ -189,7 +189,7 @@ jobs:
           node-version: 20
           cache: pnpm
       - name: Install dependencies
-        run: pnpm install --force
+        run: pnpm install --frozen-lockfile=false
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
@@ -207,7 +207,7 @@ jobs:
           image: node:20-alpine
           name: test-binding
           options: -v ${{ github.workspace }}:${{ github.workspace }} -w ${{ github.workspace }}
-          args: node --test --import tsx packages/api/__test__/*.test.ts
+          args: pnpm --filter @yuyi919/meilisearch-bridge test
 
   publish:
     name: Publish (latest)
@@ -233,7 +233,7 @@ jobs:
         shell: bash
         run: |
           MSG="$(git log -1 --pretty=%B | head -n 1 | tr -d '\r')"
-          if [[ "$MSG" =~ ^v?([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+          if [[ "$MSG" =~ v?([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
             echo "VERSION=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
           else
             echo "VERSION=" >> "$GITHUB_OUTPUT"
