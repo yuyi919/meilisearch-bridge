@@ -1,6 +1,6 @@
 {
   "name": "@yuyi919/meilisearch-bridge",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "TypeScript SDK mirroring the official meilisearch-js API, backed by the in-process @yuyi919/meilisearch-bridge-core native addon",
   "license": "MIT",
   "type": "module",

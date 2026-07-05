@@ -250,8 +250,8 @@ jobs:
         shell: bash
         run: |
           VERSION="${{ steps.release.outputs.VERSION }}"
-          CORE="$(node -p \"require('./packages/core/package.json').version\")"
-          API="$(node -p \"require('./packages/api/package.json').version\")"
+          CORE="$(node -p "require('./packages/core/package.json').version")"
+          API="$(node -p "require('./packages/api/package.json').version")"
           if [[ "$CORE" != "$VERSION" || "$API" != "$VERSION" ]]; then
             echo "Version mismatch: release=$VERSION core=$CORE api=$API"
             exit 1
