@@ -207,7 +207,11 @@ jobs:
           image: node:20-alpine
           name: test-binding
           options: -v ${{ github.workspace }}:${{ github.workspace }} -w ${{ github.workspace }}
-          args: pnpm --filter @yuyi919/meilisearch-bridge test
+          # node:20-alpine ships node + corepack but not pnpm itself. Enable
+          # corepack (it picks up the `packageManager: pnpm@9.0.0` pin from the
+          # repo's package.json) before running the test, which reuses the
+          # host-installed node_modules already mounted into the container.
+          args: sh -c "corepack enable && pnpm --filter @yuyi919/meilisearch-bridge test"
 
   publish:
     name: Publish (latest)
