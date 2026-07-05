@@ -1,8 +1,8 @@
 /**
- * @meilisearch-bridge/api — high-level SDK mirroring `meilisearch-js` shape.
+ * @yuyi919/meilisearch-bridge — high-level SDK mirroring `meilisearch-js` shape.
  *
  * Design rule: every public method returns a Promise (matching meilisearch-js).
- * Native exceptions from `@meilisearch-bridge/core` are normalized into
+ * Native exceptions from `@yuyi919/meilisearch-bridge-core` are normalized into
  * `MeilisearchBridgeError` with a stable `code` field so callers can switch
  * on the same string codes that meilisearch-js uses (`index_not_found`, etc.).
  *
@@ -18,7 +18,7 @@ import {
   type IndexSettingsUpdate as NativeIndexSettingsUpdate,
   type SearchOptions as NativeSearchOptions,
   type TaskInfo as NativeTaskInfo,
-} from "@meilisearch-bridge/core";
+} from "@yuyi919/meilisearch-bridge-core";
 
 export interface EngineOptions {
   /** Path to a directory that will hold the per-index subdirectories. */

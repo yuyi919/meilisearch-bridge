@@ -28,7 +28,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@meilisearch-bridge/core": "workspace:*"
+    "@yuyi919/meilisearch-bridge-core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^26.1.0",

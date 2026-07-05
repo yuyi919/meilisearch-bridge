@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add phased embedders support so `@meilisearch-bridge/api` can configure a REST embedder for OpenRouter or GLM, index documents through `milli`, run hybrid search, expose `retrieveVectors` in the base search shape, and reserve `similar` for a follow-up phase.
+**Goal:** Add phased embedders support so `@yuyi919/meilisearch-bridge` can configure a REST embedder for OpenRouter or GLM, index documents through `milli`, run hybrid search, expose `retrieveVectors` in the base search shape, and reserve `similar` for a follow-up phase.
 
 **Architecture:** Keep the public TypeScript API close to `meilisearch-js` by exposing `embedders` on `updateSettings()`, `hybrid` on `search()`, and `retrieveVectors` in the first-phase search result contract. Keep the N-API boundary narrow by serializing the embedder map as JSON in the API wrapper, then parse and apply it in `packages/core` using `milli`'s `EmbeddingSettings`, `RuntimeEmbedders`, `Search::semantic(...).execute_hybrid(...)`, and `Search::retrieve_vectors(...)`.
 
@@ -342,7 +342,7 @@ test('openAICompatibleRestEmbedder builds a REST embedder config for OpenRouter-
 Run:
 
 ```bash
-pnpm --filter @meilisearch-bridge/api test
+pnpm --filter @yuyi919/meilisearch-bridge test
 ```
 
 Expected:
@@ -492,7 +492,7 @@ const results = await this.#native.search(query, toNativeSearchOptions(opts));
 Run:
 
 ```bash
-pnpm --filter @meilisearch-bridge/api test
+pnpm --filter @yuyi919/meilisearch-bridge test
 ```
 
 Expected:
@@ -681,7 +681,7 @@ Run:
 
 ```bash
 pnpm run build:core
-pnpm --filter @meilisearch-bridge/api test
+pnpm --filter @yuyi919/meilisearch-bridge test
 ```
 
 Expected:
@@ -799,7 +799,7 @@ Run:
 
 ```bash
 pnpm run build:core
-pnpm --filter @meilisearch-bridge/api test
+pnpm --filter @yuyi919/meilisearch-bridge test
 ```
 
 Expected:
@@ -840,9 +840,9 @@ Expected:
 Run:
 
 ```bash
-pnpm --filter @meilisearch-bridge/api lint
-pnpm --filter @meilisearch-bridge/api build
-pnpm --filter @meilisearch-bridge/api test
+pnpm --filter @yuyi919/meilisearch-bridge lint
+pnpm --filter @yuyi919/meilisearch-bridge build
+pnpm --filter @yuyi919/meilisearch-bridge test
 ```
 
 Expected:
@@ -928,7 +928,7 @@ test('Index: similar returns semantically related documents for a reference docu
 Run:
 
 ```bash
-pnpm --filter @meilisearch-bridge/api test
+pnpm --filter @yuyi919/meilisearch-bridge test
 ```
 
 Expected:
@@ -968,7 +968,7 @@ Run:
 
 ```bash
 pnpm run build:core
-pnpm --filter @meilisearch-bridge/api test
+pnpm --filter @yuyi919/meilisearch-bridge test
 ```
 
 Expected:

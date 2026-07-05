@@ -17,7 +17,7 @@ importers:
 
   packages/api:
     dependencies:
-      '@meilisearch-bridge/core':
+      '@yuyi919/meilisearch-bridge-core':
         specifier: workspace:*
         version: link:../core
     devDependencies:

@@ -3,15 +3,15 @@
 > A pnpm monorepo that embeds Meilisearch's `milli` search engine in a Node.js addon via **napi-rs**, then exposes a TypeScript SDK that follows the official [`meilisearch-js`](https://github.com/meilisearch/meilisearch-js) ergonomics where implemented.
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  packages/api                                                    │
-│  ┌──────────────────────────┐    ┌───────────────────────────┐   │
-│  │ @meilisearch-bridge/api  │ ─► │ @meilisearch-bridge/core  │   │
-│  │ (TS SDK, meilisearch-js  │    │ (napi-rs native addon)    │   │
-│  │  style surface)          │    │  .node + generated JS/TS  │   │
-│  └──────────────────────────┘    └─────────────┬─────────────┘   │
-└────────────────────────────────────────────────┼─────────────────┘
-                                                 ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  packages/api                                                                │
+│  ┌──────────────────────────────┐    ┌───────────────────────────────────┐   │
+│  │ @yuyi919/meilisearch-bridge  │ ─► │ @yuyi919/meilisearch-bridge-core  │   │
+│  │ (TS SDK, meilisearch-js      │    │ (napi-rs native addon)            │   │
+│  │  style surface)              │    │  .node + generated JS/TS          │   │
+│  └──────────────────────────────┘    └─────────────┬─────────────────────┘   │
+└────────────────────────────────────────────────────┼─────────────────────────┘
+                                                     ▼
                               ┌──────────────────────────────────┐
                               │  native/meilisearch/             │
                               │   crates/milli                   │
@@ -77,13 +77,13 @@ pnpm run build:core
 Build the SDK:
 
 ```bash
-pnpm --filter @meilisearch-bridge/api build
+pnpm --filter @yuyi919/meilisearch-bridge build
 ```
 
 Run SDK tests:
 
 ```bash
-pnpm --filter @meilisearch-bridge/api test
+pnpm --filter @yuyi919/meilisearch-bridge test
 ```
 
 Full local API verification:
@@ -105,7 +105,7 @@ pnpm run verify:api:ci
 - `.github/workflows/test-suite.yml`
   - builds the native addon, uploads generated bindings and `.node` artifacts, then runs API build and tests
 - `.github/workflows/release.yml`
-  - builds target-specific binaries, verifies them across platforms, and publishes `@meilisearch-bridge/core` plus `@meilisearch-bridge/api` on release commits
+  - builds target-specific binaries, verifies them across platforms, and publishes `@yuyi919/meilisearch-bridge-core` plus `@yuyi919/meilisearch-bridge` on release commits
 
 ## Remaining work
 

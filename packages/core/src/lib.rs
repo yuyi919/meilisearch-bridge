@@ -1,4 +1,4 @@
-//! # `@meilisearch-bridge/core` — napi-rs native addon
+//! # `@yuyi919/meilisearch-bridge-core` — napi-rs native addon
 //!
 //! This crate wraps Meilisearch's `milli` search engine crate (vendored under
 //! `native/meilisearch/crates/milli`) and exposes it to Node.js via `#[napi]`.
