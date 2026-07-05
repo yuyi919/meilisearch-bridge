@@ -23,6 +23,15 @@
     "test": "node --test --import tsx",
     "lint": "tsc --noEmit"
   },
+  "author": {
+    "name": "yuyi",
+    "email": "deguwuti@hotmail.com",
+    "url": "https://github.com/yuyi919"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yuyi919/meilisearch-bridge.git"
+  },
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
     "access": "public"
