@@ -1,6 +1,6 @@
 {
-  "name": "meilisearch-bridge",
-  "version": "0.0.0",
+  "name": "@yuyi919/meilisearch-bridge",
+  "version": "0.0.1",
   "private": true,
   "description": "A pnpm monorepo that wraps the Meilisearch search engine (vendored as a subtree) as a Node.js addon via napi-rs, and exposes a SDK-style API matching the official meilisearch-js interface.",
   "packageManager": "pnpm@9.0.0",

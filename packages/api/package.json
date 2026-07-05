@@ -1,7 +1,7 @@
 {
-  "name": "@meilisearch-bridge/api",
+  "name": "@yuyi919/meilisearch-bridge",
   "version": "0.0.0",
-  "description": "TypeScript SDK mirroring the official meilisearch-js API, backed by the in-process @meilisearch-bridge/core native addon",
+  "description": "TypeScript SDK mirroring the official meilisearch-js API, backed by the in-process @yuyi919/meilisearch-bridge-core native addon",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -31,6 +31,7 @@
     "@meilisearch-bridge/core": "workspace:*"
   },
   "devDependencies": {
+    "@types/node": "^26.1.0",
     "tsx": "^4.19.0",
     "typescript": "^5.5.0"
   }

@@ -4,3 +4,4 @@ target/
 *.tsbuildinfo
 *.log
 .DS_Store
+npm/
