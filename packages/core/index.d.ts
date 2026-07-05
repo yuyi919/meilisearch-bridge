@@ -32,6 +32,22 @@ export declare class Engine {
    * handle.
    */
   deleteIndex(uid: string): Promise<void>
+  /**
+   * Release this Engine's cached LMDB handles and prevent further use.
+   *
+   * After calling this, every method on the Engine rejects with a
+   * `Disposed` error. Outstanding `Index` handles are **not** affected —
+   * each owns its own LMDB reference and must be disposed individually.
+   *
+   * This drops the Engine's strong references to the cached
+   * `Arc<Mutex<milli::Index>>` entries, so once every JS `Index` handle is
+   * also disposed (or GC'd) the underlying LMDB environments close and
+   * their file locks release — which is what makes the data directory
+   * deletable on Windows without EBUSY.
+   *
+   * Idempotent — calling it multiple times is safe.
+   */
+  dispose(): void
   getTask(taskUid: number): Promise<TaskInfo>
   waitForTask(taskUid: number, timeoutMs?: number | undefined | null): Promise<TaskInfo>
 }
@@ -46,6 +62,23 @@ export declare class Index {
   get uid(): string
   /** The configured primary key, or null if not set. */
   get primaryKey(): string | null
+  /**
+   * Release this Index handle and prevent further use.
+   *
+   * This only disables *this* handle — sibling handles backed by the same
+   * `milli::Index` (e.g. from another `engine.getIndex()` call) keep
+   * working. Background tasks already spawned by `addDocumentsFromNdjson`
+   * or `updateSettings` hold their own `Arc` clones and run to completion.
+   *
+   * In addition to setting the disposed flag, this drops our strong
+   * reference to the underlying `milli::Index` so that — once every other
+   * handle and any in-flight background thread have also dropped theirs —
+   * the LMDB environment closes and its on-disk lock releases. This is the
+   * deterministic alternative to waiting for JS GC finalization.
+   *
+   * Idempotent — calling it multiple times is safe.
+   */
+  dispose(): void
   /** Total number of documents currently stored in the index. */
   documentCount(): number
   getDocuments(options?: GetDocumentsOptions | undefined | null): Promise<GetDocumentsResults>

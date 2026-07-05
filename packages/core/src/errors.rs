@@ -6,6 +6,7 @@
 //! message preserved.
 
 use std::fmt;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// JS-facing error codes. These are stable strings that TypeScript code can
 /// switch on. They roughly mirror milli's `ErrorKind` variants.
@@ -23,6 +24,7 @@ pub enum BridgeErrorCode {
     SearchError,
     TooManyDocuments,
     OutOfBound,
+    Disposed,
 }
 
 impl fmt::Display for BridgeErrorCode {
@@ -40,6 +42,7 @@ impl fmt::Display for BridgeErrorCode {
             Self::SearchError => "SearchError",
             Self::TooManyDocuments => "TooManyDocuments",
             Self::OutOfBound => "OutOfBound",
+            Self::Disposed => "Disposed",
         };
         f.write_str(s)
     }
@@ -60,6 +63,7 @@ impl BridgeErrorCode {
             Self::OutOfBound => napi::Status::GenericFailure,
             Self::Internal => napi::Status::GenericFailure,
             Self::IoError => napi::Status::GenericFailure,
+            Self::Disposed => napi::Status::GenericFailure,
         }
     }
 }
@@ -128,4 +132,18 @@ pub type BridgeResult<T> = std::result::Result<T, BridgeError>;
 // Re-export for use in #[napi] functions which need to return napi::Result<T>.
 pub fn into_js<T>(r: BridgeResult<T>) -> napi::Result<T> {
     r.map_err(Into::into)
+}
+
+/// Check whether a handle has been disposed and return a `Disposed` error if so.
+///
+/// Used by every `Engine`/`Index` method to gate access after `dispose()` has
+/// been called from JS.
+pub fn check_not_disposed(disposed: &AtomicBool) -> BridgeResult<()> {
+    if disposed.load(Ordering::Acquire) {
+        return Err(BridgeError {
+            code: BridgeErrorCode::Disposed,
+            message: "cannot use a disposed handle".to_string(),
+        });
+    }
+    Ok(())
 }

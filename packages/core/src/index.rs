@@ -11,6 +11,7 @@
 //! JS-facing schema.
 
 use std::io::Cursor;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -19,7 +20,7 @@ use napi_derive::napi;
 use parking_lot::{Mutex, RwLock};
 use serde_json::Value;
 
-use crate::errors::{into_js, BridgeError, BridgeErrorCode, BridgeResult};
+use crate::errors::{check_not_disposed, into_js, BridgeError, BridgeErrorCode, BridgeResult};
 use crate::search::{DocumentHit, SearchResults};
 use crate::task::{TaskDetails, TaskInfo, TaskStore};
 
@@ -66,9 +67,38 @@ pub struct SearchOptions {
 pub struct Index {
     uid: String,
     primary_key: Arc<RwLock<Option<String>>>,
-    inner: Arc<Mutex<milli::Index>>,
+    /// The underlying `milli::Index` reference, wrapped so that `dispose()`
+    /// can drop our strong ref deterministically. Once `dispose()` sets this
+    /// to `None`, our handle no longer keeps the LMDB env alive — if every
+    /// other handle (and any background thread) has also dropped theirs, the
+    /// env closes and its file lock releases. Background tasks spawned by
+    /// `add_documents_from_ndjson`/`update_settings` capture their own `Arc`
+    /// clone at enqueue time, so they're unaffected by this being `None`.
+    inner: Arc<Mutex<Option<Arc<Mutex<milli::Index>>>>>,
     indexer_config: Arc<milli::update::IndexerConfig>,
     task_store: Arc<TaskStore>,
+    /// Set to true by `dispose()`. Once set, all methods reject with
+    /// `BridgeErrorCode::Disposed`. Each `Index` handle owns its own flag —
+    /// disposing one handle does not affect siblings backed by the same
+    /// `milli::Index`.
+    disposed: Arc<AtomicBool>,
+}
+
+impl Index {
+    /// Snapshot our `Arc<Mutex<milli::Index>>` clone, or return `Disposed` if
+    /// `dispose()` already dropped it. Callers must have already passed
+    /// `check_not_disposed` — this is the resource-acquisition half of the
+    /// guard, kept separate so the flag check and the `Option` take are
+    /// consistent under the inner `Mutex`.
+    fn inner_arc(&self) -> BridgeResult<Arc<Mutex<milli::Index>>> {
+        match self.inner.lock().clone() {
+            Some(arc) => Ok(arc),
+            None => Err(BridgeError {
+                code: BridgeErrorCode::Disposed,
+                message: "cannot use a disposed handle".to_string(),
+            }),
+        }
+    }
 }
 
 #[napi]
@@ -82,13 +112,15 @@ impl Index {
         inner: Arc<Mutex<milli::Index>>,
         indexer_config: Arc<milli::update::IndexerConfig>,
         task_store: Arc<TaskStore>,
+        disposed: Arc<AtomicBool>,
     ) -> Self {
         Self {
             uid,
             primary_key: Arc::new(RwLock::new(primary_key)),
-            inner,
+            inner: Arc::new(Mutex::new(Some(inner))),
             indexer_config,
             task_store,
+            disposed,
         }
     }
 
@@ -104,10 +136,32 @@ impl Index {
         self.primary_key.read().clone()
     }
 
+    /// Release this Index handle and prevent further use.
+    ///
+    /// This only disables *this* handle — sibling handles backed by the same
+    /// `milli::Index` (e.g. from another `engine.getIndex()` call) keep
+    /// working. Background tasks already spawned by `addDocumentsFromNdjson`
+    /// or `updateSettings` hold their own `Arc` clones and run to completion.
+    ///
+    /// In addition to setting the disposed flag, this drops our strong
+    /// reference to the underlying `milli::Index` so that — once every other
+    /// handle and any in-flight background thread have also dropped theirs —
+    /// the LMDB environment closes and its on-disk lock releases. This is the
+    /// deterministic alternative to waiting for JS GC finalization.
+    ///
+    /// Idempotent — calling it multiple times is safe.
+    #[napi]
+    pub fn dispose(&self) {
+        self.disposed.store(true, Ordering::Release);
+        *self.inner.lock() = None;
+    }
+
     /// Total number of documents currently stored in the index.
     #[napi]
     pub fn document_count(&self) -> napi::Result<u32> {
-        let inner = self.inner.lock();
+        into_js(check_not_disposed(&self.disposed))?;
+        let inner = into_js(self.inner_arc())?;
+        let inner = inner.lock();
         let rtxn = into_js(inner.read_txn().map_err(BridgeError::from))?;
         let n: u64 = into_js(inner.number_of_documents(&rtxn).map_err(BridgeError::from))?;
         // Clamp to u32 for JS — practical indexes fit in u32 anyway.
@@ -119,7 +173,8 @@ impl Index {
         &self,
         options: Option<GetDocumentsOptions>,
     ) -> napi::Result<GetDocumentsResults> {
-        let inner = self.inner.clone();
+        into_js(check_not_disposed(&self.disposed))?;
+        let inner = into_js(self.inner_arc())?;
         let result: BridgeResult<GetDocumentsResults> = tokio::task::spawn_blocking(move || {
             let options = options.unwrap_or_default();
             let offset = options.offset.unwrap_or(0) as usize;
@@ -170,7 +225,8 @@ impl Index {
     /// Returns the number of documents indexed.
     #[napi]
     pub async fn add_documents_from_ndjson(&self, ndjson: String) -> napi::Result<TaskInfo> {
-        let inner = self.inner.clone();
+        into_js(check_not_disposed(&self.disposed))?;
+        let inner = into_js(self.inner_arc())?;
         let uid = self.uid.clone();
         let indexer_config = self.indexer_config.clone();
         let task_store = self.task_store.clone();
@@ -213,7 +269,8 @@ impl Index {
 
     #[napi]
     pub async fn update_settings(&self, settings: IndexSettingsUpdate) -> napi::Result<TaskInfo> {
-        let inner = self.inner.clone();
+        into_js(check_not_disposed(&self.disposed))?;
+        let inner = into_js(self.inner_arc())?;
         let uid = self.uid.clone();
         let indexer_config = self.indexer_config.clone();
         let task_store = self.task_store.clone();
@@ -251,7 +308,8 @@ impl Index {
         query: String,
         options: Option<SearchOptions>,
     ) -> napi::Result<SearchResults> {
-        let inner = self.inner.clone();
+        into_js(check_not_disposed(&self.disposed))?;
+        let inner = into_js(self.inner_arc())?;
         let primary_key = self.primary_key.clone();
         let result: BridgeResult<SearchResults> = tokio::task::spawn_blocking(move || {
             let started = Instant::now();

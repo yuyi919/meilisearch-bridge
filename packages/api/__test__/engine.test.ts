@@ -1,9 +1,26 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
+import { rm as rmAsync } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Client, Engine, MeilisearchBridgeError } from '../src/index.ts';
+import { Client, Engine, MeilisearchBridgeError } from '../src/index';
+
+// LMDB holds file locks briefly on Windows even after handles drop; retry
+// cleanup so a slow release doesn't fail the test suite.
+const rm: typeof rmAsync = async (dir, opts) => {
+  try {
+    await rmAsync(dir, opts);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code === 'EBUSY' || code === 'ENOTEMPTY') {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      return await rm(dir, opts);
+    }
+    if (code === 'ENOENT') return;
+    throw err;
+  }
+};
 
 test('Engine: createIndex + listIndexes round-trip', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'msb-'));
@@ -12,8 +29,9 @@ test('Engine: createIndex + listIndexes round-trip', async () => {
     await e.createIndex('movies', { primaryKey: 'id' });
     const list = await e.listIndexes();
     assert.deepEqual(list, ['movies']);
+    e.dispose();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true });
   }
 });
 
@@ -30,8 +48,9 @@ test('Engine: creating an existing index throws IndexAlreadyExists', async () =>
         return true;
       },
     );
+    e.dispose();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true });
   }
 });
 
@@ -52,8 +71,10 @@ test('Index: documentCount starts at 0 and addDocuments returns an enqueued task
     assert.equal(typeof task.taskUid, 'number');
     assert.equal(typeof task.enqueuedAt, 'string');
     assert.equal('acceptedDocuments' in task, false);
+    e.dispose();
+    idx.dispose();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true });
   }
 });
 
@@ -87,8 +108,11 @@ test('Index: addDocuments writes searchable data and waitForTask returns a compl
     assert.equal(search.hits.length, 1);
     assert.equal(search.hits[0]?.id, '2');
     assert.equal(search.hits[0]?.title, 'Interstellar');
+
+    client.dispose();
+    index.dispose();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true });
   }
 });
 
@@ -127,8 +151,11 @@ test('Index: updateSettings(searchableAttributes) changes searchable fields for 
     const afterTitle = await index.search('dune');
     assert.equal(afterTitle.hits.length, 1);
     assert.equal(afterTitle.hits[0]?.id, '1');
+
+    client.dispose();
+    index.dispose();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true });
   }
 });
 
@@ -158,8 +185,11 @@ test('Index: getDocuments supports minimal offset/limit/fields options', async (
     assert.equal(docs.limit, 1);
     assert.equal(docs.results.length, 1);
     assert.deepEqual(docs.results[0], { title: 'Interstellar' });
+    
+    client.dispose();
+    index.dispose();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true });
   }
 });
 
@@ -191,7 +221,10 @@ test('Index: search supports minimal offset/limit/attributesToRetrieve options',
     assert.equal(results.hits[0]?.genre, undefined);
     assert.equal(results.hits[0]?.overview, undefined);
     assert.ok(['Alpha', 'Beta'].includes(results.hits[0]?.title ?? ''));
+    
+    client.dispose();
+    index.dispose();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true });
   }
 });

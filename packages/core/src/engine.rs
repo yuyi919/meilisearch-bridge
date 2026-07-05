@@ -12,6 +12,7 @@
 //!   `await idx.search('incep')`
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -19,7 +20,7 @@ use napi_derive::napi;
 use parking_lot::Mutex;
 use tokio::sync::RwLock;
 
-use crate::errors::{into_js, BridgeError, BridgeErrorCode, BridgeResult};
+use crate::errors::{check_not_disposed, into_js, BridgeError, BridgeErrorCode, BridgeResult};
 use crate::index::Index;
 use crate::task::{TaskInfo, TaskStore};
 
@@ -43,6 +44,11 @@ pub struct Engine {
     indexer_config: Arc<milli::update::IndexerConfig>,
     /// Persistent task registry rooted at `<base_path>/.tasks`.
     task_store: Arc<TaskStore>,
+    /// Set to true by `dispose()`. Once set, all methods reject with
+    /// `BridgeErrorCode::Disposed`. Held in `Arc` so background work that
+    /// captured the engine cannot outlive the flag's intent — but note the
+    /// flag is only consulted at method entry, not by in-flight tasks.
+    disposed: Arc<AtomicBool>,
 }
 
 #[napi]
@@ -70,12 +76,14 @@ impl Engine {
             fs_lock: Arc::new(Mutex::new(())),
             indexer_config: Arc::new(milli::update::IndexerConfig::default()),
             task_store: Arc::new(task_store),
+            disposed: Arc::new(AtomicBool::new(false)),
         })
     }
 
     /// List the UIDs of every index present on disk.
     #[napi]
     pub async fn list_indexes(&self) -> napi::Result<Vec<String>> {
+        into_js(check_not_disposed(&self.disposed))?;
         let base = self.base_path.clone();
         let result: BridgeResult<Vec<String>> = tokio::task::spawn_blocking(move || {
             let mut out = Vec::new();
@@ -104,6 +112,7 @@ impl Engine {
     /// name used as the document id). Fails if the index already exists.
     #[napi]
     pub async fn create_index(&self, uid: String, primary_key: String) -> napi::Result<()> {
+        into_js(check_not_disposed(&self.disposed))?;
         let base = self.base_path.clone();
         let builder = self.env_builder.clone();
         let fs_lock = self.fs_lock.clone();
@@ -141,6 +150,7 @@ impl Engine {
     /// exists it's ignored.
     #[napi]
     pub async fn get_index(&self, uid: String, primary_key: Option<String>) -> napi::Result<Index> {
+        into_js(check_not_disposed(&self.disposed))?;
         let base = self.base_path.clone();
         let builder = self.env_builder.clone();
         let open_indexes = self.open_indexes.clone();
@@ -181,6 +191,7 @@ impl Engine {
                 handle,
                 indexer_config,
                 task_store,
+                Arc::new(AtomicBool::new(false)),
             ))
         })
         .await
@@ -195,6 +206,7 @@ impl Engine {
     /// handle.
     #[napi]
     pub async fn delete_index(&self, uid: String) -> napi::Result<()> {
+        into_js(check_not_disposed(&self.disposed))?;
         let base = self.base_path.clone();
         let fs_lock = self.fs_lock.clone();
         {
@@ -221,8 +233,29 @@ impl Engine {
         into_js(result)
     }
 
+    /// Release this Engine's cached LMDB handles and prevent further use.
+    ///
+    /// After calling this, every method on the Engine rejects with a
+    /// `Disposed` error. Outstanding `Index` handles are **not** affected —
+    /// each owns its own LMDB reference and must be disposed individually.
+    ///
+    /// This drops the Engine's strong references to the cached
+    /// `Arc<Mutex<milli::Index>>` entries, so once every JS `Index` handle is
+    /// also disposed (or GC'd) the underlying LMDB environments close and
+    /// their file locks release — which is what makes the data directory
+    /// deletable on Windows without EBUSY.
+    ///
+    /// Idempotent — calling it multiple times is safe.
+    #[napi]
+    pub fn dispose(&self) {
+        self.disposed.store(true, Ordering::Release);
+        let mut cache = self.open_indexes.blocking_write();
+        cache.clear();
+    }
+
     #[napi]
     pub async fn get_task(&self, task_uid: u32) -> napi::Result<TaskInfo> {
+        into_js(check_not_disposed(&self.disposed))?;
         let task_store = self.task_store.clone();
         let result: BridgeResult<TaskInfo> =
             tokio::task::spawn_blocking(move || task_store.get(task_uid))
@@ -240,6 +273,7 @@ impl Engine {
         task_uid: u32,
         timeout_ms: Option<u32>,
     ) -> napi::Result<TaskInfo> {
+        into_js(check_not_disposed(&self.disposed))?;
         let task_store = self.task_store.clone();
         let timeout_ms = timeout_ms.unwrap_or(5_000);
         let result: BridgeResult<TaskInfo> = tokio::task::spawn_blocking(move || {

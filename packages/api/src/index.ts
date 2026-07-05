@@ -18,7 +18,7 @@ import {
   type IndexSettingsUpdate as NativeIndexSettingsUpdate,
   type SearchOptions as NativeSearchOptions,
   type TaskInfo as NativeTaskInfo,
-} from '@meilisearch-bridge/core';
+} from "@meilisearch-bridge/core";
 
 export interface EngineOptions {
   /** Path to a directory that will hold the per-index subdirectories. */
@@ -81,18 +81,19 @@ export interface EnqueuedTask {
 
 /** Stable error codes surfaced from the native layer. */
 export type MeilisearchErrorCode =
-  | 'Internal'
-  | 'InvalidArgument'
-  | 'IoError'
-  | 'IndexAlreadyExists'
-  | 'IndexNotFound'
-  | 'TaskNotFound'
-  | 'DocumentNotFound'
-  | 'InvalidDatabaseState'
-  | 'SettingsUpdateInvalid'
-  | 'SearchError'
-  | 'TooManyDocuments'
-  | 'OutOfBound';
+  | "Internal"
+  | "InvalidArgument"
+  | "IoError"
+  | "IndexAlreadyExists"
+  | "IndexNotFound"
+  | "TaskNotFound"
+  | "DocumentNotFound"
+  | "InvalidDatabaseState"
+  | "SettingsUpdateInvalid"
+  | "SearchError"
+  | "TooManyDocuments"
+  | "OutOfBound"
+  | "Disposed";
 
 /** Error thrown by this SDK. Mirrors `MeilisearchApiError` from meilisearch-js. */
 export class MeilisearchBridgeError extends Error {
@@ -100,49 +101,57 @@ export class MeilisearchBridgeError extends Error {
   readonly cause?: unknown;
   constructor(code: MeilisearchErrorCode, message: string, cause?: unknown) {
     super(message);
-    this.name = 'MeilisearchBridgeError';
+    this.name = "MeilisearchBridgeError";
     this.code = code;
     this.cause = cause;
   }
 }
 
 function normalizeNativeError(e: unknown): never {
-  if (e && typeof e === 'object' && 'code' in e && 'message' in e) {
+  if (e && typeof e === "object" && "code" in e && "message" in e) {
     const message = String((e as { message: unknown }).message);
     const rawCode = String((e as { code: unknown }).code);
-    throw new MeilisearchBridgeError(extractErrorCode(rawCode, message), message, e);
+    throw new MeilisearchBridgeError(
+      extractErrorCode(rawCode, message),
+      message,
+      e,
+    );
   }
-  throw new MeilisearchBridgeError('Internal', String(e), e);
+  throw new MeilisearchBridgeError("Internal", String(e), e);
 }
 
 const KNOWN_ERROR_CODES = new Set<MeilisearchErrorCode>([
-  'Internal',
-  'InvalidArgument',
-  'IoError',
-  'IndexAlreadyExists',
-  'IndexNotFound',
-  'TaskNotFound',
-  'DocumentNotFound',
-  'InvalidDatabaseState',
-  'SettingsUpdateInvalid',
-  'SearchError',
-  'TooManyDocuments',
-  'OutOfBound',
+  "Internal",
+  "InvalidArgument",
+  "IoError",
+  "IndexAlreadyExists",
+  "IndexNotFound",
+  "TaskNotFound",
+  "DocumentNotFound",
+  "InvalidDatabaseState",
+  "SettingsUpdateInvalid",
+  "SearchError",
+  "TooManyDocuments",
+  "OutOfBound",
+  "Disposed",
 ]);
 
-function extractErrorCode(rawCode: string, message: string): MeilisearchErrorCode {
+function extractErrorCode(
+  rawCode: string,
+  message: string,
+): MeilisearchErrorCode {
   if (KNOWN_ERROR_CODES.has(rawCode as MeilisearchErrorCode)) {
     return rawCode as MeilisearchErrorCode;
   }
 
   const matched = message.match(
-    /\b(Internal|InvalidArgument|IoError|IndexAlreadyExists|IndexNotFound|TaskNotFound|DocumentNotFound|InvalidDatabaseState|SettingsUpdateInvalid|SearchError|TooManyDocuments|OutOfBound)\b/,
+    /\b(Internal|InvalidArgument|IoError|IndexAlreadyExists|IndexNotFound|TaskNotFound|DocumentNotFound|InvalidDatabaseState|SettingsUpdateInvalid|SearchError|TooManyDocuments|OutOfBound|Disposed)\b/,
   );
   if (matched) {
     return matched[1] as MeilisearchErrorCode;
   }
 
-  return 'Internal';
+  return "Internal";
 }
 
 function toTask(task: NativeTaskInfo): Task {
@@ -174,7 +183,7 @@ function toEnqueuedTask(task: NativeTaskInfo): EnqueuedTask {
  * server. It manages a directory of indexes on disk.
  */
 export class Engine {
-  readonly #native: NativeEngine;
+  #native: NativeEngine;
   readonly dataDir: string;
 
   constructor(opts: EngineOptions) {
@@ -184,6 +193,24 @@ export class Engine {
     } catch (e) {
       normalizeNativeError(e);
     }
+  }
+
+  /** Release native resources held by this engine and prevent further use.
+   *
+   * After this returns, any method call throws `MeilisearchBridgeError` with
+   * code `Disposed`. Outstanding `Index` handles are unaffected — dispose
+   * them individually. Idempotent.
+   *
+   * The native handle is intentionally NOT nulled: the native struct owns the
+   * disposed flag and is the single source of truth for the `Disposed` error
+   * surfaced to callers. */
+  dispose(): void {
+    this.#native.dispose();
+  }
+
+  /** Explicit Resource Management hook for `using engine = new Engine(...)`. */
+  [Symbol.dispose](): void {
+    this.dispose();
   }
 
   /** List every index currently in the data directory. */
@@ -247,7 +274,7 @@ export class Engine {
  * application code can be migrated by changing the import.
  */
 export class Index {
-  readonly #native: NativeIndex;
+  #native: NativeIndex;
   readonly uid: string;
   primaryKey: string | null;
 
@@ -257,8 +284,28 @@ export class Index {
     this.primaryKey = primaryKey;
   }
 
+  /** Release native resources held by this index handle and prevent further
+   * use.
+   *
+   * Only disables this handle — sibling handles backed by the same index
+   * keep working. In-flight background tasks (add/update) run to completion.
+   * Idempotent.
+   *
+   * The native handle is intentionally NOT nulled: the native struct owns the
+   * disposed flag and is the single source of truth for the `Disposed` error. */
+  dispose(): void {
+    this.#native.dispose();
+  }
+
+  /** Explicit Resource Management hook for `using index = ...`. */
+  [Symbol.dispose](): void {
+    this.dispose();
+  }
+
   /** Total number of documents stored in the index. */
-  async getDocuments<T extends Record<string, unknown> = Record<string, unknown>>(
+  async getDocuments<
+    T extends Record<string, unknown> = Record<string, unknown>,
+  >(
     opts?: GetDocumentsOptions,
   ): Promise<{ results: T[]; offset: number; limit: number; total: number }> {
     try {
@@ -281,7 +328,7 @@ export class Index {
     if (opts?.primaryKey && !this.primaryKey) {
       await this.updateSettings({ primaryKey: opts.primaryKey });
     }
-    const ndjson = documents.map((d) => JSON.stringify(d)).join('\n');
+    const ndjson = documents.map((d) => JSON.stringify(d)).join("\n");
     try {
       return toEnqueuedTask(await this.#native.addDocumentsFromNdjson(ndjson));
     } catch (e) {
@@ -291,7 +338,9 @@ export class Index {
 
   async updateSettings(settings: UpdateSettingsPayload): Promise<EnqueuedTask> {
     try {
-      const task = await this.#native.updateSettings(settings as NativeIndexSettingsUpdate);
+      const task = await this.#native.updateSettings(
+        settings as NativeIndexSettingsUpdate,
+      );
       if (settings.primaryKey) {
         this.primaryKey = settings.primaryKey;
       }
@@ -301,7 +350,7 @@ export class Index {
     }
   }
 
-  async search<T extends Record<string, unknown>>(
+  async search<T extends Record<string, any>>(
     query: string,
     opts?: SearchOptions,
   ): Promise<{
@@ -373,6 +422,11 @@ export class Client {
   /** Alias of `engine.deleteIndex()`. */
   async deleteIndex(uid: string): Promise<void> {
     return this.engine.deleteIndex(uid);
+  }
+
+  /** Release native resources held by this client handle and prevent further use. */
+  dispose() {
+    this.engine.dispose()
   }
 }
 
