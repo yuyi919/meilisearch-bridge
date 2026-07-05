@@ -3,6 +3,15 @@
   "version": "0.0.1",
   "description": "napi-rs native addon wrapping Meilisearch's milli search engine",
   "license": "MIT",
+  "author": {
+    "name": "yuyi",
+    "email": "deguwuti@hotmail.com",
+    "url": "https://github.com/yuyi919"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yuyi919/meilisearch-bridge.git"
+  },
   "main": "index.js",
   "types": "index.d.ts",
   "napi": {
