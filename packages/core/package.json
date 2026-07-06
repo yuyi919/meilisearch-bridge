@@ -1,6 +1,6 @@
 {
   "name": "@yuyi919/meilisearch-bridge-core",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "napi-rs native addon wrapping Meilisearch's milli search engine",
   "license": "MIT",
   "author": {
